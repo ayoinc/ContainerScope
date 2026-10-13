@@ -332,14 +332,18 @@ CS.views.windows = function windows(root) {
   }
 
   async function setDisplay(id, display) {
-    const label = display === "virtio-gpu" ? "VirtIO GPU (install viogpudo in Windows first)" : "Basic display (ramfb)";
+    const label = display === "virtio-gpu"
+      ? "VirtIO GPU. If viogpudo isn't installed in Windows yet (including during Setup), the window freezes on the boot logo: shut down and switch back to Basic"
+      : "Basic display (ramfb)";
     await CS.act(null, "winSetDisplay", { id, display }, `${id} will use ${label} on next start`);
     refresh();
   }
 
   /* Display switch with the driver it depends on right underneath. */
   function displayCell(v) {
-    const note = v.display === "virtio-gpu" ? "Needs viogpudo from VirtIO Drivers" : "Fixed size · no driver needed";
+    const note = v.display === "virtio-gpu"
+      ? "Only after viogpudo is installed in Windows · not for Setup; frozen boot logo = switch back to Basic"
+      : "Fixed size · no driver needed · use for Setup";
     const control = v.running
       ? h("span", { class: "primary-cell" }, v.display === "virtio-gpu" ? "VirtIO GPU" : "Basic (ramfb)")
       : ui.segmented([["ramfb", "Basic"], ["virtio-gpu", "VirtIO GPU"]], v.display, (key) => setDisplay(v.id, key), `Display for ${v.id}`);

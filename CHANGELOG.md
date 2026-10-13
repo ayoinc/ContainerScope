@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Windows on ARM: the display switch warns that VirtIO GPU only works once viogpudo is installed in Windows (not during Setup), and that a frozen boot logo means switching back to Basic.
+
 ## [0.2.0] - 2026-10-13
 
 ### Added
