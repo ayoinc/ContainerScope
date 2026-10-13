@@ -11,6 +11,9 @@ permissions:
 jobs:
   release:
     runs-on: macos-26
+    env:
+      # Developer ID Application: Ayodele Ajayi (T8242XY72S), pinned by SHA-1
+      SIGN_IDENTITY: E9F7D76C00EAECE40F6D30B9AEF23EF9E70E1D56
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,10 +22,32 @@ jobs:
         run: |
           test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)" || {
             echo "::error::Tag $GITHUB_REF_NAME does not match VERSION $(cat VERSION)"; exit 1; }
+      - name: Import signing identity
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security import "$RUNNER_TEMP/devid.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/devid.p12"
+          security find-identity -v -p codesigning "$KEYCHAIN" | grep -q "$SIGN_IDENTITY"
+          printf '%s\n' "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+          echo "NOTARY_KEY_PATH=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
       - name: Build app
         run: Scripts/build-app.sh
-      - name: Build DMG
+      - name: Build, sign and notarize DMG
         id: dmg
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
         run: |
           DMG="$(Scripts/build-dmg.sh)"
           (cd build && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
@@ -35,3 +60,8 @@ jobs:
             "${{ steps.dmg.outputs.path }}" "${{ steps.dmg.outputs.path }}.sha256" \
             --title "ContainerScope ${GITHUB_REF_NAME#v}" \
             --generate-notes
+      - name: Remove signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/notary.p8"

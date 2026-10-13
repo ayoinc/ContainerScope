@@ -42,5 +42,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign - "$APP" >/dev/null
+# SIGN_IDENTITY: a Developer ID Application identity (name or SHA-1) for distributable builds,
+# signed with the hardened runtime and a secure timestamp as notarization requires.
+# Unset: ad-hoc signature for local use.
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+  codesign --verify --strict --deep "$APP"
+else
+  codesign --force --sign - "$APP" >/dev/null
+fi
 echo "$APP"

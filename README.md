@@ -4,11 +4,7 @@ ContainerScope is a native macOS app (Swift + WebKit) for Apple's [`container`](
 
 ## Install
 
-1. Download `ContainerScope-<version>.dmg` from [Releases](../../releases) and drag **ContainerScope** to **Applications**.
-2. The app has an ad-hoc signature and isn't notarized, so the first time you open it, macOS blocks it. Go to **System Settings → Privacy & Security** and choose **Open Anyway**, or run:
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/ContainerScope.app
-   ```
+Download `ContainerScope-<version>.dmg` from [Releases](../../releases), open it, and drag **ContainerScope** to **Applications**. Release builds are signed with a Developer ID and notarized by Apple, so they open without Gatekeeper warnings.
 
 Requires macOS 26 on Apple Silicon with Apple `container` installed (`brew install container`).
 
@@ -40,6 +36,14 @@ Scripts/build-app.sh      # build/ContainerScope.app (SwiftPM, no Xcode project)
 Scripts/build-dmg.sh      # build/ContainerScope-<version>.dmg
 ```
 
+Without extra settings, builds get an ad-hoc signature for local use. For a signed, notarized local build:
+
+```sh
+export SIGN_IDENTITY="Developer ID Application: …"    # or the identity's SHA-1
+export NOTARY_PROFILE=containerscope                 # xcrun notarytool store-credentials containerscope …
+Scripts/build-app.sh && Scripts/build-dmg.sh
+```
+
 To change the artwork, edit the SVGs in [`Artwork/`](Artwork). [`mark.svg`](Artwork/mark.svg) is the one source for the logo. Run `Artwork/render.sh` (needs `brew install resvg`) to regenerate `AppIcon.icns`, `hero.png` and `Firmware/Logo.png`.
 
 ## Releases
@@ -53,7 +57,16 @@ Scripts/release.sh 0.2.0
 This bumps `VERSION`, commits, tags `v0.2.0` and pushes. The tag starts the [Release workflow](.github/workflows/release.yml) on a `macos-26` runner, which:
 
 1. Checks that the tag matches `VERSION`.
-2. Builds the app and DMG.
-3. Publishes a GitHub Release with the DMG, its SHA-256 and generated release notes.
+2. Imports the Developer ID identity into a temporary keychain.
+3. Builds the app with the hardened runtime.
+4. Notarizes the DMG and staples the ticket.
+5. Publishes a GitHub Release with the DMG, its SHA-256 and generated release notes.
+
+The Release workflow uses these repository secrets:
+
+| Secret | Contents |
+|---|---|
+| `DEVELOPER_ID_P12_BASE64` / `DEVELOPER_ID_P12_PASSWORD` | Developer ID Application certificate and private key (`.p12`, base64) |
+| `NOTARY_KEY_P8` / `NOTARY_KEY_ID` / `NOTARY_ISSUER` | App Store Connect API key with Developer access, used by `notarytool` |
 
 Every push to `main` and every pull request runs [CI](.github/workflows/ci.yml), which uploads the DMG as a build artifact.
