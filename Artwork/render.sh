@@ -1,6 +1,7 @@
 #!/bin/sh
-# Renders the SVG sources into the committed assets:
+# Renders the SVG sources (all built around mark.svg) into the committed assets:
 #   AppIcon.icns  (bundled by Scripts/build-app.sh)
+#   hero.png      (README banner, 2x)
 #   ../Firmware/Logo.png (UEFI boot logo; Firmware/build-aavmf.sh converts it to Logo.bmp)
 # Requires: resvg (brew install resvg), iconutil (Xcode Command Line Tools).
 set -eu
@@ -9,6 +10,7 @@ cd "$(dirname "$0")"
 render() { resvg --resources-dir . --use-fonts-dir /System/Library/Fonts --font-family "Helvetica Neue" "$@"; }
 
 render splash.svg ../Firmware/Logo.png
+render hero.svg --width 2560 hero.png
 
 ICONSET="$(mktemp -d)/AppIcon.iconset"
 mkdir -p "$ICONSET"
@@ -18,4 +20,4 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o AppIcon.icns
 rm -rf "$(dirname "$ICONSET")"
-echo "Rendered AppIcon.icns hero.png splash.png"
+echo "Rendered AppIcon.icns hero.png ../Firmware/Logo.png"

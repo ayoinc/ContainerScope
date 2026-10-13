@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in ContainerScope doesn't work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems: please don't file them here. See [SECURITY.md](https://github.com/ayoinc/ContainerScope/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: ContainerScope version
+      description: ContainerScope › About ContainerScope
+      placeholder: 0.2.0 (57)
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 26.1
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac model
+      placeholder: MacBook Pro (M4 Pro)
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Container engine
+      description: Shown on the Engine page under Services › Engine
+      options:
+        - Bundled with ContainerScope
+        - Homebrew
+        - Apple's installer
+        - CONTAINER_BIN / PATH
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Containers, images, volumes, networks
+        - Orchestration (Kubernetes, Compose)
+        - Linux
+        - Windows on ARM
+        - Engine
+        - Install / update
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Error toasts, `container system logs`, or a Windows VM's qemu.log (Windows on ARM › VM › Log). Remove anything private.
+      render: text

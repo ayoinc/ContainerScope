@@ -1,0 +1,26 @@
+name: Firmware
+
+# Secure Boot UEFI firmware (Firmware/build-aavmf.sh) built natively on a Linux arm64 runner, because
+# macOS runners can't run Linux containers. Cached by recipe, so most runs only restore it.
+on:
+  workflow_call:
+
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - id: cache
+        uses: actions/cache@v6
+        with:
+          path: build/deps/firmware
+          key: firmware-${{ hashFiles('Firmware/**', 'Scripts/build-firmware.sh') }}
+      - name: Build firmware
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: Scripts/build-firmware.sh build/deps/firmware
+      - run: cat build/deps/firmware/VERSION
+      - uses: actions/upload-artifact@v7
+        with:
+          name: firmware
+          path: build/deps/firmware
+          retention-days: 1

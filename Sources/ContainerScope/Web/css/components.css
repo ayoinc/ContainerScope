@@ -395,3 +395,13 @@ input[type="number"] {
   background: var(--text-bg); color: var(--label); font: var(--text-body) var(--font);
   -webkit-user-select: text; user-select: text;
 }
+
+/* ---------- Requirements: what ships in the app vs what the user provides ---------- */
+.requirements { display: flex; flex-direction: column; }
+.requirement { display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 2px var(--space-4); align-items: center; padding: var(--space-2) 0; }
+.requirement + .requirement { border-top: 0.5px solid var(--separator); }
+.requirement .detail { grid-column: 1 / -1; color: var(--label-secondary); font-size: var(--text-callout); -webkit-user-select: text; user-select: text; }
+.requirement .tag { --tag-color: var(--label-secondary); justify-self: end; font-size: var(--text-subheadline); font-weight: var(--weight-semibold); color: var(--tag-color); }
+.requirement .tag.included, .requirement .tag.ok { --tag-color: var(--green); }
+.requirement .tag.action { --tag-color: var(--blue); }
+.requirement .tag.missing { --tag-color: var(--red); }

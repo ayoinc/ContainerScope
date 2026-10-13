@@ -8,13 +8,31 @@ CS.views = CS.views || {};
 CS.views.windows = function windows(root) {
   const { h, fmt, ui } = CS;
   const MS_PAGE = "https://www.microsoft.com/software-download/windows11arm64";
+  const INSIDER_PAGE = "https://www.microsoft.com/en-us/software-download/windowsinsiderpreviewARM64";
+  const INSIDER_JOIN = "https://www.microsoft.com/en-us/windowsinsider/";
+  const UUP_DUMP = "https://uupdump.net/";
+  const ALL_DRIVERS = "pnputil /add-driver E:\\*\\w11\\ARM64\\*.inf /subdirs /install";
+  const DISPLAY_DRIVER = "pnputil /add-driver E:\\viogpudo\\w11\\ARM64\\viogpudo.inf /install";
+  const NET_MODES = [["nat", "NAT"], ["forward", "NAT + Port Forwarding"], ["none", "Isolated"]];
+  const NET_HINTS = {
+    nat: "Windows reaches the internet through the Mac (QEMU user-mode NAT; Windows gets 10.0.2.15). Nothing on the Mac can connect in.",
+    forward: "NAT, plus TCP ports on the Mac (127.0.0.1 only) forwarded into Windows. Mac ports must be 1024–65535 and not used by another app or VM. RDP needs Remote Desktop turned on in Windows; SSH needs OpenSSH Server.",
+    none: "No network adapter at all: Windows stays offline.",
+  };
+  const PRESETS = [["RDP", 3389, 3389], ["SSH", 2222, 22]];
   let state = null;
   let error = null;
   let timer = null;
+  let source = "microsoft";
+  let virtioChannel = "stable";
   const attach = {};          // iso path → attach at next boot (default on)
   const extraISOs = [];       // ISOs picked from elsewhere on disk (never cleaned up)
 
   const field = (label, control, wide) => h("label", { class: `field${wide ? " wide" : ""}` }, h("span", {}, label), control);
+  const open = (url) => () => CS.call("openURL", { url });
+  const copyBlock = (text) => h("div", { class: "copy-block" },
+    h("pre", { class: "console" }, text),
+    ui.iconButton("copy", "Copy", () => { navigator.clipboard.writeText(text); CS.toast("Copied"); }, ""));
   const urlInput = h("input", { type: "url", class: "mono", placeholder: "https://software.download.prss.microsoft.com/…_arm64_….iso", "aria-label": "Windows ISO download link" });
   const editionSelect = h("select", { "aria-label": "Windows version", disabled: true }, h("option", {}, "Loading from Microsoft…"));
   const languageSelect = h("select", { "aria-label": "Windows language", disabled: true }, h("option", {}, "—"));
@@ -25,48 +43,158 @@ CS.views.windows = function windows(root) {
   const memory = h("input", { type: "number", min: 4, max: 256, value: 8, "aria-label": "Memory (GB)" });
   const disk = h("input", { type: "number", min: 64, max: 2048, value: 64, "aria-label": "Disk (GB)" });
   const createButton = ui.button("Create VM", { icon: "play", kind: "prominent", onClick: () => create() });
+  const createNetwork = networkEditor({ mode: "nat", forwards: [] });
 
   const toolsSlot = h("div");
+  const sourceSlot = h("div", { class: "stack-tight" });
   const mediaSlot = h("div");
   const mediaSummary = h("span", { class: "summary" });
   const vmSlot = h("div");
   const vmSummary = h("span", { class: "summary" });
+  const editSlot = h("div");
   const logSlot = h("div");
+
+  /* Each install source: a title, why/when to use it, and its controls. */
+  const SOURCES = [
+    ["microsoft", "Microsoft", () => [
+      explain("Windows 11 on ARM · official release",
+        "The current Windows 11 Arm64 ISO from Microsoft's download page, in every edition and language Microsoft offers. ContainerScope asks Microsoft for a signed link when you click Download (valid 24 hours), and the file comes straight from Microsoft's servers."),
+      h("div", { class: "row wrap" }, field("Windows on ARM", editionSelect, true), field("Language", languageSelect), windowsButton),
+      catalogStatus]],
+    ["insider", "Insider Preview", () => [
+      explain("Windows Insider Preview · ARM64",
+        "Pre-release Windows 11 on ARM builds from Microsoft. Microsoft only shows these ISOs to Windows Insider members signed in with a Microsoft account, so ContainerScope can't download them for you. Open the page in your browser, sign in, download the ARM64 ISO, then choose the downloaded file here."),
+      h("div", { class: "row wrap" },
+        ui.button("Open Insider ARM64 Downloads", { onClick: open(INSIDER_PAGE) }),
+        ui.button("Join Windows Insider", { kind: "plain", onClick: open(INSIDER_JOIN) }),
+        h("span", { class: "spacer" }),
+        ui.button("Choose Downloaded ISO…", { onClick: (e) => chooseISO(e.currentTarget) }))]],
+    ["link", "Link", () => [
+      explain("Direct download link",
+        "Any https:// link to an ARM64 .iso, such as the 24-hour link Microsoft's download page gives you after picking a language. It downloads into the temporary folder below."),
+      h("div", { class: "row wrap" }, field("Windows ISO link", urlInput, true),
+        ui.button("Download", { icon: "download", onClick: (e) => download(e.currentTarget, "isoDownload", { url: urlInput.value }) }),
+        ui.button("Open Microsoft Download Page", { kind: "plain", onClick: open(MS_PAGE) }))]],
+    ["disk", "ISO on Disk", () => [
+      explain("An ISO you already have",
+        "Use a Windows 11 ARM64 or driver ISO that's already on this Mac. It's attached in place: never copied, and never deleted by Clean Up."),
+      h("div", { class: "row" }, ui.button("Choose ISO…", { onClick: (e) => chooseISO(e.currentTarget) }))]],
+    ["uup", "UUP dump", () => [
+      explain("UUP dump · community tool",
+        "uupdump.net lists the Windows builds Microsoft's update servers deliver, including Insider builds without signing in, and gives you a script that downloads those files from Microsoft and assembles an ISO on your Mac. It's run by volunteers, not Microsoft, and ContainerScope doesn't run or check it. Pick an arm64 build; the macOS script needs aria2, cabextract, wimlib, chntpw and cdrtools from Homebrew. Then choose the ISO it builds."),
+      h("div", { class: "row wrap" },
+        ui.button("Open UUP dump", { onClick: open(UUP_DUMP) }),
+        h("span", { class: "spacer" }),
+        ui.button("Choose Built ISO…", { onClick: (e) => chooseISO(e.currentTarget) }))]],
+  ];
 
   root.replaceChildren(h("div", { class: "stack" },
     toolsSlot,
     h("section", {},
       h("div", { class: "section-header" }, h("h2", {}, "Installer Media"), mediaSummary, h("div", { class: "spacer" }),
         ui.button("Clean Up", { icon: "sweep", title: "Delete downloaded ISOs from the temporary folder", onClick: (e) => cleanup(e.currentTarget) })),
-      h("div", { class: "group stack-tight" },
-        h("div", { class: "row wrap" }, field("Windows on ARM", editionSelect, true), field("Language", languageSelect), windowsButton),
-        catalogStatus,
-        h("details", {},
-          h("summary", { class: "secondary" }, "Use a link instead"),
-          h("div", { class: "row wrap" }, field("Windows ISO link", urlInput, true),
-            ui.button("Download", { icon: "download", onClick: (e) => download(e.currentTarget, "isoDownload", { url: urlInput.value }) }),
-            ui.button("Open Microsoft Download Page", { kind: "plain", onClick: () => CS.call("openURL", { url: MS_PAGE }) }))),
-        h("div", { class: "row wrap" },
-          h("span", { class: "secondary" }, "VirtIO drivers give Windows its network adapter."),
-          h("span", { class: "spacer" }),
-          ui.button("Download VirtIO Drivers", { icon: "download", onClick: (e) => download(e.currentTarget, "isoDownloadVirtio", {}) }),
-          ui.button("Use ISO on Disk…", { kind: "plain", onClick: (e) => chooseISO(e.currentTarget) }))),
-      mediaSlot),
+      h("div", { class: "stack-tight" },
+        h("div", { class: "group stack-tight" },
+          ui.segmented(SOURCES.map(([key, label]) => [key, label]), source, (key) => { source = key; renderSource(); }, "Windows install source"),
+          sourceSlot),
+        driversGroup(),
+        mediaSlot)),
     h("section", {},
       ui.sectionHeader("New Windows VM", "Windows 11 on ARM · Hypervisor.framework · UEFI · TPM 2.0 · NVMe"),
       h("div", { class: "group stack-tight" },
         h("div", { class: "form-grid" }, field("Name", name), field("CPUs", cpus), field("Memory (GB)", memory), field("Disk (GB)", disk)),
+        h("div", { class: "field" }, h("span", {}, "Network"), createNetwork.el),
         h("div", { class: "row" }, h("span", { class: "secondary" }, "The disk grows on demand; 64 GB is Windows 11's minimum."), h("span", { class: "spacer" }), createButton))),
     h("section", {}, h("div", { class: "section-header" }, h("h2", {}, "Virtual Machines"), vmSummary), vmSlot),
+    editSlot,
     logSlot,
     h("section", {},
       ui.sectionHeader("Setup Notes"),
       h("div", { class: "group stack-tight" },
         h("p", {}, "Press any key in the VM window when it says ", h("code", {}, "Press any key to boot from CD or DVD"), "."),
-        h("p", {}, "No network during setup? Press ", h("code", {}, "Shift+F10"), ", run ", h("code", {}, "OOBE\\BYPASSNRO"), ", and choose “I don't have internet”."),
-        h("p", {}, "After first login, install the ARM64 VirtIO drivers (network, display, balloon…). ", h("code", {}, "virtio-win-guest-tools.exe"), " is x64-only. In an administrator terminal, with the VirtIO CD as ", h("code", {}, "E:"), ", run ", h("code", {}, "pnputil /add-driver E:\\*\\w11\\ARM64\\*.inf /subdirs /install"), "."),
+        h("p", {}, "To get online during setup, attach the VirtIO drivers ISO, choose ", h("code", {}, "Install driver"), " on the network screen and pick ", h("code", {}, "E:\\NetKVM\\w11\\ARM64"), ". Or press ", h("code", {}, "Shift+F10"), ", run ", h("code", {}, "OOBE\\BYPASSNRO"), ", and choose “I don't have internet”."),
+        h("p", {}, "After first login, install the rest of the ARM64 VirtIO drivers with the commands under VirtIO Drivers above. ", h("code", {}, "virtio-win-guest-tools.exe"), " is x64-only."),
         h("p", {}, "Then shut down and switch the VM's display to VirtIO GPU so the window can be resized and Windows follows its size. Basic display (ramfb) has a fixed size; the window then only scales the picture."),
         h("p", {}, "Once Windows is installed, start the VM with no media attached and use Clean Up to delete the ISOs.")))));
+
+  function explain(title, text) {
+    return h("div", {}, h("strong", {}, title), h("p", { class: "secondary", style: { margin: "4px 0 0" } }, text));
+  }
+
+  function renderSource() {
+    sourceSlot.replaceChildren(...SOURCES.find(([key]) => key === source)[2]());
+  }
+
+  /* The VirtIO ISO carries every ARM64 driver this VM's virtual hardware needs. */
+  function driversGroup() {
+    const downloadButton = ui.button("Download VirtIO Drivers", { icon: "download", onClick: (e) => download(e.currentTarget, "isoDownloadVirtio", { channel: virtioChannel }) });
+    return h("div", { class: "group stack-tight" },
+      h("div", { class: "row wrap" },
+        h("strong", {}, "VirtIO Drivers · ARM64"),
+        h("span", { class: "spacer" }),
+        ui.segmented([["stable", "Stable"], ["latest", "Latest"]], virtioChannel, (key) => { virtioChannel = key; downloadButton.title = state?.virtio?.[key] || ""; }, "VirtIO driver channel"),
+        downloadButton),
+      h("p", { class: "secondary", style: { margin: 0 } },
+        "Windows 11 on ARM has no built-in driver for this VM's network adapter or VirtIO GPU display. Fedora's virtio-win ISO has ARM64 drivers for both: ",
+        h("strong", {}, "NetKVM"), " (network) and ", h("strong", {}, "viogpudo"), " (display and video), plus viostor and vioscsi (storage), Balloon (memory), vioserial, viorng, vioinput, viomem, pvpanic, viosock and viofs. ",
+        "Stable is the tested release, Latest the newest build; they save as virtio-win-stable.iso and virtio-win-latest.iso."),
+      h("p", { style: { margin: 0 } }, "Install every ARM64 driver (administrator terminal in Windows, VirtIO CD as ", h("code", {}, "E:"), "):"),
+      copyBlock(ALL_DRIVERS),
+      h("p", { style: { margin: 0 } }, "Only the display driver, needed before switching a VM to VirtIO GPU:"),
+      copyBlock(DISPLAY_DRIVER),
+      h("p", { class: "secondary", style: { margin: 0 } }, "Each driver sits in ", h("code", {}, "<driver>\\w11\\ARM64"), " on the ISO, for example ", h("code", {}, "E:\\viogpudo\\w11\\ARM64"), " and ", h("code", {}, "E:\\NetKVM\\w11\\ARM64"), ". If Windows gave the CD another letter, replace ", h("code", {}, "E:"), "."));
+  }
+
+  /* Network settings for a VM: mode, forwarding rules (forward mode), and the adapter it implies. */
+  function networkEditor(initial, ownerId) {
+    let mode = initial.mode || "nat";
+    const rules = (initial.forwards || []).map((f) => ({ host: String(f.host), guest: String(f.guest) }));
+    const hint = h("p", { class: "secondary", style: { margin: 0 } });
+    const adapter = h("p", { class: "secondary", style: { margin: 0 } },
+      "Adapter: VirtIO network (virtio-net-pci). Windows 11 on ARM has no built-in driver for it or for any other adapter QEMU emulates here, so install NetKVM from the VirtIO drivers.");
+    const rulesSlot = h("div", { class: "stack-tight" });
+    const el = h("div", { class: "stack-tight" },
+      h("div", { class: "row" }, ui.segmented(NET_MODES, mode, (key) => {
+        mode = key;
+        if (key === "forward" && !rules.length) addRule(3389, 3389);
+        draw();
+      }, "Network mode")),
+      hint, rulesSlot, adapter);
+
+    /* Mac ports taken by this editor's other rules or by another VM. */
+    function usedPorts() {
+      const taken = new Set(rules.map((r) => Number(r.host)));
+      for (const vm of state?.vms || []) {
+        if (vm.id !== ownerId && vm.network?.mode === "forward") vm.network.forwards.forEach((f) => taken.add(f.host));
+      }
+      return taken;
+    }
+    function addRule(host, guest) {
+      const taken = usedPorts();
+      while (taken.has(host) && host < 65535) host++;
+      rules.push({ host: String(host), guest: String(guest) });
+    }
+    const portInput = (rule, key, min, label) => h("input", {
+      type: "number", min, max: 65535, value: rule[key], "aria-label": label, style: { width: "110px" },
+      oninput: (e) => { rule[key] = e.currentTarget.value.trim(); },
+    });
+    function draw() {
+      hint.textContent = NET_HINTS[mode];
+      adapter.hidden = mode === "none";
+      if (mode !== "forward") { rulesSlot.replaceChildren(); return; }
+      rulesSlot.replaceChildren(
+        ...rules.map((rule, index) => h("div", { class: "row wrap" },
+          field("Mac port (127.0.0.1)", portInput(rule, "host", 1024, `Mac port for rule ${index + 1}`)),
+          h("span", { class: "secondary", style: { alignSelf: "flex-end", paddingBottom: "6px" } }, "→"),
+          field("Windows port", portInput(rule, "guest", 1, `Windows port for rule ${index + 1}`)),
+          h("span", { style: { alignSelf: "flex-end" } }, ui.iconButton("trash", `Remove rule ${index + 1}`, () => { rules.splice(index, 1); draw(); })))),
+        h("div", { class: "row wrap" },
+          ...PRESETS.map(([label, host, guest]) => ui.button(`Add ${label} (${guest})`, { kind: "plain", onClick: () => { addRule(host, guest); draw(); } })),
+          ui.button("Add Custom TCP Rule", { kind: "plain", onClick: () => { addRule(8080, 80); draw(); } })));
+    }
+    draw();
+    return { el, params: () => ({ network: mode, forwards: mode === "forward" ? rules.map((r) => `${r.host}:${r.guest}`) : [] }) };
+  }
 
   async function refresh() {
     try { state = await CS.json("winStatus"); error = null; } catch (e) { error = String(e?.message || e); }
@@ -117,7 +245,7 @@ CS.views.windows = function windows(root) {
   }
 
   async function create() {
-    const params = { id: name.value.trim(), cpus: Number(cpus.value), memoryGB: Number(memory.value), diskGB: Number(disk.value) };
+    const params = { id: name.value.trim(), cpus: Number(cpus.value), memoryGB: Number(memory.value), diskGB: Number(disk.value), ...createNetwork.params() };
     if (!params.id) { name.focus(); return; }
     if ((await CS.act(createButton, "winCreate", params, `${params.id} created`)).ok) refresh();
   }
@@ -143,31 +271,30 @@ CS.views.windows = function windows(root) {
         h("pre", { class: "console" }, text.trim() || "(empty)")));
     } catch (e) { CS.toast("Log unavailable", String(e?.message || e), "error"); }
   }
-  let fetchingFirmware = false;
 
+  /* Network changes apply at the next start, so they're only offered while the VM is shut down. */
+  function editNetwork(vm) {
+    const editor = networkEditor(vm.network || { mode: "nat", forwards: [] }, vm.id);
+    const close = () => editSlot.replaceChildren();
+    const save = ui.button("Save", { kind: "prominent", onClick: async () => {
+      if ((await CS.act(save, "winSetNetwork", { id: vm.id, ...editor.params() }, `${vm.id} network saved · applies at next start`)).ok) { close(); refresh(); }
+    } });
+    editSlot.replaceChildren(h("section", {},
+      ui.sectionHeader(`Network · ${vm.id}`, "Applies the next time the VM starts", ui.button("Cancel", { kind: "plain", onClick: close }), save),
+      h("div", { class: "group stack-tight" }, editor.el)));
+  }
+
+  /* Everything a Windows VM needs ships inside the app; this only reports what's bundled. */
   function renderTools() {
-    const missing = [!state.qemu && "QEMU", !state.swtpm && "swtpm"].filter(Boolean);
-    toolsSlot.replaceChildren(missing.length
-      ? h("div", { class: "callout warning row wrap" }, `${missing.join(" and ")} not found. Windows VMs need QEMU (Hypervisor.framework) and swtpm (TPM 2.0).`,
-        h("span", { class: "spacer" }),
-        state.homebrew ? ui.button("Install QEMU", { kind: "prominent", onClick: async (e) => { if ((await CS.act(e.currentTarget, "winInstallTools", {}, "QEMU and swtpm installed")).ok) refresh(); } })
-          : h("span", {}, "Install Homebrew, then run ", h("code", {}, "brew install qemu swtpm")))
-      : h("div", { class: "stack-tight" },
-        h("div", { class: "checks" },
-          h("span", { class: "check pass" }, h("span", {}, "✓"), " QEMU with Hypervisor.framework"),
-          h("span", { class: `check ${state.secureBoot ? "pass" : "fail"}` }, h("span", {}, state.secureBoot ? "✓" : "✕"), " UEFI Secure Boot (Microsoft keys)"),
-          h("span", { class: "check pass" }, h("span", {}, "✓"), " swtpm TPM 2.0")),
-        state.secureBoot ? null : h("div", { class: "callout warning row wrap" },
-          "Windows 11 Setup requires Secure Boot. Homebrew's ARM64 UEFI build doesn't include it, so ContainerScope builds Ubuntu's Secure Boot firmware (qemu-efi-aarch64, Microsoft keys enrolled) with its boot logo, inside your container engine. Takes about 3 minutes.",
-          h("span", { class: "spacer" }),
-          fetchingFirmware ? h("span", { class: "row secondary" }, h("div", { class: "spinner" }), "Building firmware…")
-            : ui.button("Get Secure Boot Firmware", { kind: "prominent", onClick: async (e) => {
-              fetchingFirmware = true; renderTools();
-              const result = await CS.act(e.currentTarget, "winSecureBootFirmware", {}, "Secure Boot firmware installed");
-              fetchingFirmware = false;
-              refresh();
-              return result;
-            } }))));
+    const v = state.versions || {};
+    const item = (ok, label, version) => h("span", { class: `check ${ok ? "pass" : "fail"}` }, h("span", {}, ok ? "✓" : "✕"), ` ${label}`, version ? h("span", { class: "secondary" }, ` ${version}`) : null);
+    const broken = !state.qemu || !state.swtpm || !state.firmware;
+    toolsSlot.replaceChildren(h("div", { class: "stack-tight" },
+      h("div", { class: "checks" },
+        item(state.qemu, "QEMU with Hypervisor.framework", v.qemu),
+        item(state.firmware, "UEFI Secure Boot (Microsoft keys)", v.firmware),
+        item(state.swtpm, "swtpm TPM 2.0", v.swtpm)),
+      broken ? h("div", { class: "callout warning" }, "Part of the bundled Windows tooling is missing from this copy of ContainerScope. Download the app again from the Releases page.") : null));
   }
 
   function renderMedia() {
@@ -204,8 +331,25 @@ CS.views.windows = function windows(root) {
     ], items, { rowKey: (m) => m.path }));
   }
 
-  async function setDisplay(button, id, display, label) {
-    if ((await CS.act(button, "winSetDisplay", { id, display }, `${id} will use ${label} on next start`)).ok) refresh();
+  async function setDisplay(id, display) {
+    const label = display === "virtio-gpu" ? "VirtIO GPU (install viogpudo in Windows first)" : "Basic display (ramfb)";
+    await CS.act(null, "winSetDisplay", { id, display }, `${id} will use ${label} on next start`);
+    refresh();
+  }
+
+  /* Display switch with the driver it depends on right underneath. */
+  function displayCell(v) {
+    const note = v.display === "virtio-gpu" ? "Needs viogpudo from VirtIO Drivers" : "Fixed size · no driver needed";
+    const control = v.running
+      ? h("span", { class: "primary-cell" }, v.display === "virtio-gpu" ? "VirtIO GPU" : "Basic (ramfb)")
+      : ui.segmented([["ramfb", "Basic"], ["virtio-gpu", "VirtIO GPU"]], v.display, (key) => setDisplay(v.id, key), `Display for ${v.id}`);
+    return [control, h("span", { class: "sub" }, note)];
+  }
+
+  function networkText(net) {
+    if (!net || net.mode === "nat") return ["NAT", "VirtIO adapter"];
+    if (net.mode === "none") return ["Isolated", "No adapter"];
+    return ["NAT + forwarding", net.forwards.map((f) => f.host === f.guest ? `${f.host}` : `${f.host}→${f.guest}`).join(", ")];
   }
 
   function renderVMs() {
@@ -213,21 +357,19 @@ CS.views.windows = function windows(root) {
     vmSummary.textContent = `${vms.filter((v) => v.running).length} running · ${vms.length} total`;
     if (!vms.length) { vmSlot.replaceChildren(h("div", { class: "group" }, ui.empty("box", "No Windows VMs", "Download the Windows ISO and VirtIO drivers, then create a VM above."))); return; }
     ui.showTable(vmSlot, ui.table([
-      { title: "Name", width: "20%", render: (v) => [h("span", { class: "primary-cell" }, v.id), h("span", { class: "sub" }, ui.status(v.running ? "running" : "stopped"))] },
-      { title: "Resources", width: "16%", render: (v) => `${v.cpus} CPU · ${v.memoryGB} GB` },
-      { title: "Disk", width: "15%", render: (v) => `${fmt.bytes(v.diskUsed)} of ${v.diskGB} GB` },
-      { title: "Display", width: "13%", render: (v) => v.display === "virtio-gpu" ? "VirtIO GPU" : "Basic (ramfb)" },
-      { title: "Media", width: "14%", render: (v) => h("span", { class: "secondary truncate" }, v.running ? (v.isos.map((p) => p.split("/").pop()).join(", ") || "None") : "—") },
+      { title: "Name", width: "14%", render: (v) => [h("span", { class: "primary-cell" }, v.id), h("span", { class: "sub" }, ui.status(v.running ? "running" : "stopped"))] },
+      { title: "Resources", width: "12%", render: (v) => [h("span", {}, `${v.cpus} CPU · ${v.memoryGB} GB`), h("span", { class: "sub" }, `${fmt.bytes(v.diskUsed)} of ${v.diskGB} GB`)] },
+      { title: "Display", width: "22%", render: displayCell },
+      { title: "Network", width: "16%", render: (v) => { const [main, sub] = networkText(v.network); return [h("span", {}, main), h("span", { class: "sub truncate", title: sub }, sub)]; } },
+      { title: "Media", width: "18%", render: (v) => h("span", { class: "secondary truncate" }, v.running ? (v.isos.map((p) => p.split("/").pop()).join(", ") || "None") : "—") },
       {
-        title: "", width: "22%", className: "actions",
+        title: "", width: "18%", className: "actions",
         render: (v) => h("div", { class: "row" },
           v.running
             ? ui.iconButton("power", `Shut down ${v.id}`, (e) => vmAction(e.currentTarget, "winShutdown", v.id, `Sent shutdown to ${v.id}`))
             : ui.iconButton("play", `Start ${v.id} with checked media`, (e) => vmAction(e.currentTarget, "winStart", v.id, `Started ${v.id}`)),
           v.running ? ui.iconButton("stop", `Power off ${v.id}`, (e) => vmAction(e.currentTarget, "winPowerOff", v.id, `Powered off ${v.id}`)) : null,
-          v.running ? null : v.display === "virtio-gpu"
-            ? ui.iconButton("display", `Use basic display for ${v.id}`, (e) => setDisplay(e.currentTarget, v.id, "ramfb", "Basic display (ramfb)"))
-            : ui.iconButton("display", `Use VirtIO GPU display for ${v.id}`, (e) => setDisplay(e.currentTarget, v.id, "virtio-gpu", "VirtIO GPU")),
+          v.running ? null : ui.iconButton("network", `Change network for ${v.id}`, () => editNetwork(v)),
           ui.iconButton("terminal", `Show QEMU log for ${v.id}`, () => showLog(v.id)),
           v.running ? null : ui.iconButton("trash", `Delete ${v.id}`, (e) => vmAction(e.currentTarget, "winDelete", v.id, `Deleted ${v.id}`))),
       },
@@ -242,6 +384,7 @@ CS.views.windows = function windows(root) {
     renderVMs();
   }
 
+  renderSource();
   render();
   refresh();
   loadCatalog();

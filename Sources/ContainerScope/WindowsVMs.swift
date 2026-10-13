@@ -1,24 +1,26 @@
 import Foundation
 
-/// Windows on ARM guests run on QEMU with Apple's Hypervisor.framework (`-accel hvf`), UEFI from
-/// QEMU's EDK2 build, and a software TPM 2.0 (swtpm) for Windows 11. Install media is downloaded
-/// into a temporary folder that the user cleans up once setup has finished.
+/// Windows on ARM guests run on QEMU with Apple's Hypervisor.framework (`-accel hvf`), Secure Boot
+/// UEFI and a software TPM 2.0 (swtpm) for Windows 11, all bundled in the app (see `Bundled`).
+/// Install media is downloaded into a temporary folder that the user cleans up once setup has finished.
 @MainActor
 final class WindowsVMs {
     static let shared = WindowsVMs()
 
-    /// Fedora's stable VirtIO driver ISO (network, balloon, serial for Windows guests).
-    static let virtioURL = URL(string: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso")!
+    /// Fedora's VirtIO driver ISOs. Both carry ARM64 drivers under `<driver>\w11\ARM64`: viogpudo
+    /// (display), NetKVM (network), Balloon, vioserial, viorng, viofs and more. Each channel downloads
+    /// under its own name so stable and latest can sit side by side in the temp folder.
+    static let virtioChannels: [String: URL] = [
+        "stable": URL(string: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso")!,
+        "latest": URL(string: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio/virtio-win.iso")!,
+    ]
 
     let vmRoot: URL
     let mediaDir: URL
-    /// Secure Boot UEFI with Microsoft keys enrolled (Ubuntu's AAVMF build); Homebrew's aarch64 EDK2 has no Secure Boot.
+    /// Secure Boot UEFI with Microsoft keys enrolled (Ubuntu's AAVMF build), expanded from the bundle.
     let firmwareDir: URL
     private var secureBootCode: URL { firmwareDir.appendingPathComponent("AAVMF_CODE.ms.fd") }
     private var secureBootVars: URL { firmwareDir.appendingPathComponent("AAVMF_VARS.ms.fd") }
-    var hasSecureBootFirmware: Bool {
-        FileManager.default.fileExists(atPath: secureBootCode.path) && FileManager.default.fileExists(atPath: secureBootVars.path)
-    }
     private var downloads: [String: Download] = [:]
 
     private struct Download {
@@ -37,10 +39,39 @@ final class WindowsVMs {
 
     // MARK: Tooling
 
-    private static func tool(_ name: String) -> URL? {
-        ["/opt/homebrew/bin/\(name)", "/usr/local/bin/\(name)"]
-            .first { FileManager.default.isExecutableFile(atPath: $0) }
-            .map(URL.init(fileURLWithPath:))
+    private static func tool(_ name: String) throws -> URL {
+        guard let url = Bundled.qemuTool(name) else {
+            throw CLIError(message: "\(name) is missing from the app bundle. Reinstall ContainerScope.")
+        }
+        return url
+    }
+
+    /// QEMU's virt machine needs 64 MiB pflash images. The bundle ships them with the trailing zero
+    /// padding trimmed; this restores it once per firmware version. Truncating extends the file
+    /// sparsely, so the padding takes no disk space, and rename(2) swaps files atomically, so a
+    /// running VM keeps its open copy.
+    private func ensureFirmware() throws {
+        let fm = FileManager.default
+        let source = Bundled.firmware
+        guard let version = try? String(contentsOf: source.appendingPathComponent("VERSION"), encoding: .utf8) else {
+            throw CLIError(message: "Secure Boot firmware is missing from the app bundle. Reinstall ContainerScope.")
+        }
+        let stamp = firmwareDir.appendingPathComponent("VERSION")
+        let current = [secureBootCode, secureBootVars].allSatisfy { fm.fileExists(atPath: $0.path) }
+        if current, (try? String(contentsOf: stamp, encoding: .utf8)) == version { return }
+        try fm.createDirectory(at: firmwareDir, withIntermediateDirectories: true)
+        for target in [secureBootCode, secureBootVars] {
+            let temp = firmwareDir.appendingPathComponent(".\(target.lastPathComponent).new")
+            try? fm.removeItem(at: temp)
+            try fm.copyItem(at: source.appendingPathComponent(target.lastPathComponent), to: temp)
+            let handle = try FileHandle(forWritingTo: temp)
+            try handle.truncate(atOffset: 64 << 20)
+            try handle.close()
+            guard rename(temp.path, target.path) == 0 else {
+                throw CLIError(message: "Could not install \(target.lastPathComponent): \(String(cString: strerror(errno)))")
+            }
+        }
+        try version.write(to: stamp, atomically: true, encoding: .utf8)
     }
 
     // MARK: Status
@@ -61,25 +92,26 @@ final class WindowsVMs {
                                "error": d.error ?? "", "source": d.source.absoluteString, "inUse": false])
         }
         let result: [String: Any] = [
-            "qemu": Self.tool("qemu-system-aarch64")?.path ?? "",
-            "swtpm": Self.tool("swtpm")?.path ?? "",
-            "secureBoot": hasSecureBootFirmware,
-            "homebrew": ContainerCLI.homebrew != nil,
+            "qemu": Bundled.qemuTool("qemu-system-aarch64") != nil,
+            "swtpm": Bundled.qemuTool("swtpm") != nil,
+            "firmware": FileManager.default.fileExists(atPath: Bundled.firmware.appendingPathComponent("VERSION").path),
+            "versions": Bundled.versions,
             "mediaDir": mediaDir.path,
             "vmRoot": vmRoot.path,
             "media": mediaItems.sorted { ($0["name"] as! String) < ($1["name"] as! String) },
             "vms": try vms().map(\.json),
-            "virtioURL": Self.virtioURL.absoluteString,
+            "virtio": Self.virtioChannels.mapValues(\.absoluteString),
         ]
         return String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self)
     }
 
     // MARK: Install media
 
-    /// Starts a background download into the temp media folder; progress is reported by `statusJSON`.
-    func download(_ source: URL) throws -> String {
+    /// Starts a background download into the temp media folder, saved as `fileName` (default: the
+    /// link's last path component); progress is reported by `statusJSON`.
+    func download(_ source: URL, as fileName: String? = nil) throws -> String {
         guard source.scheme == "https" else { throw CLIError(message: "Only https:// download links are allowed") }
-        let name = source.lastPathComponent
+        let name = fileName ?? source.lastPathComponent
         guard name.lowercased().hasSuffix(".iso"), Self.safeFileName(name) else {
             throw CLIError(message: "The link must point to an .iso file")
         }
@@ -155,6 +187,10 @@ final class WindowsVMs {
         /// "ramfb" (fixed-size framebuffer Windows drives with no extra driver) or "virtio-gpu"
         /// (resizable; needs viogpudo from virtio-win installed in Windows first).
         var display = "ramfb"
+        var network = Network()
+        /// Per-VM MAC address. QEMU's default (52:54:00:12:34:56) is shared by every QEMU guest, and
+        /// Windows Autopilot can mistake it for an enrolled device and demand an unrelated work sign-in.
+        var mac = ""
         var isos: [String] = []
         var pid: Int32?
 
@@ -164,8 +200,87 @@ final class WindowsVMs {
             let disk = dir.appendingPathComponent("disk.qcow2")
             let used = (try? disk.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0
             return ["id": id, "cpus": cpus, "memoryGB": memoryGB, "diskGB": diskGB, "diskUsed": used,
-                    "display": display, "running": running, "isos": isos, "dir": dir.path]
+                    "display": display, "network": network.json, "mac": mac, "running": running, "isos": isos, "dir": dir.path]
         }
+    }
+
+    /// TCP port forwarded from 127.0.0.1 on the Mac to the guest.
+    struct Forward: Equatable {
+        let host: Int
+        let guest: Int
+    }
+
+    /// "nat": QEMU user networking (outbound only). "forward": NAT plus host→guest TCP forwards.
+    /// "none": no network adapter at all. The adapter is always virtio-net-pci: Windows 11 ARM64 has
+    /// no inbox driver for any NIC QEMU can emulate on `virt`, so NetKVM from virtio-win is needed.
+    struct Network {
+        var mode = "nat"
+        var forwards: [Forward] = []
+
+        var json: [String: Any] { ["mode": mode, "forwards": forwards.map { ["host": $0.host, "guest": $0.guest] }] }
+
+        /// Validates a mode plus "host:guest" rules (forward mode only).
+        static func parse(mode: String?, forwards: [String]?) throws -> Network {
+            let mode = mode ?? "nat"
+            guard ["nat", "forward", "none"].contains(mode) else { throw CLIError(message: "Unknown network mode \(mode)") }
+            guard mode == "forward" else { return Network(mode: mode) }
+            var rules: [Forward] = []
+            for text in forwards ?? [] {
+                let parts = text.split(separator: ":", omittingEmptySubsequences: false)
+                guard parts.count == 2, let host = Int(parts[0]), let guest = Int(parts[1]),
+                      (1024...65535).contains(host), (1...65535).contains(guest) else {
+                    throw CLIError(message: "Invalid rule “\(text)”: Mac ports must be 1024–65535 and Windows ports 1–65535")
+                }
+                guard !rules.contains(where: { $0.host == host }) else {
+                    throw CLIError(message: "Mac port \(host) is used by two rules. Each rule needs its own Mac port.")
+                }
+                rules.append(Forward(host: host, guest: guest))
+            }
+            guard !rules.isEmpty else { throw CLIError(message: "Add at least one port forwarding rule, or choose NAT") }
+            guard rules.count <= 16 else { throw CLIError(message: "Use 16 port forwarding rules or fewer") }
+            return Network(mode: mode, forwards: rules)
+        }
+    }
+
+    private static func randomMAC() -> String {
+        "52:54:00:" + (0..<3).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined(separator: ":")
+    }
+
+    /// Stable MAC for VMs created before MACs were stored, unique per user and VM (FNV-1a of the
+    /// VM folder path and creation time), so no config file is rewritten.
+    private static func derivedMAC(_ seed: String) -> String {
+        var hash: UInt32 = 2_166_136_261
+        for byte in seed.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
+        return String(format: "52:54:00:%02x:%02x:%02x", (hash >> 16) & 0xff, (hash >> 8) & 0xff, hash & 0xff)
+    }
+
+    private static func validMAC(_ mac: String) -> Bool {
+        mac.range(of: "^([0-9a-f]{2}:){5}[0-9a-f]{2}$", options: .regularExpression) != nil
+    }
+
+    /// Two VMs may not claim the same Mac port, even when only one runs at a time, so a rule never
+    /// fails at start because of another VM's configuration.
+    private func checkForwardConflicts(_ network: Network, id: String) throws {
+        for other in try vms() where other.id != id && other.network.mode == "forward" {
+            if let clash = network.forwards.first(where: { rule in other.network.forwards.contains { $0.host == rule.host } }) {
+                throw CLIError(message: "Mac port \(clash.host) is already forwarded to \(other.id). Choose another Mac port.")
+            }
+        }
+    }
+
+    /// True when nothing on this Mac is listening on 127.0.0.1:`port` (or the wildcard address).
+    private static func hostPortFree(_ port: Int) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return true }
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port).bigEndian)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        return withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        } == 0
     }
 
     private func vms() throws -> [VM] {
@@ -180,6 +295,17 @@ final class WindowsVMs {
         var vm = VM(id: dir.lastPathComponent, dir: dir, cpus: config["cpus"] as? Int ?? 4,
                     memoryGB: config["memoryGB"] as? Int ?? 8, diskGB: config["diskGB"] as? Int ?? 64)
         if config["display"] as? String == "virtio-gpu" { vm.display = "virtio-gpu" }
+        // VMs without a network key keep the original default: NAT with virtio-net-pci.
+        if let net = config["network"] as? [String: Any],
+           let parsed = try? Network.parse(mode: net["mode"] as? String,
+                                           forwards: (net["forwards"] as? [[String: Int]])?.map { "\($0["host"] ?? 0):\($0["guest"] ?? 0)" }) {
+            vm.network = parsed
+        }
+        if let mac = config["mac"] as? String, Self.validMAC(mac) {
+            vm.mac = mac
+        } else {
+            vm.mac = Self.derivedMAC(dir.path + (config["created"] as? String ?? ""))
+        }
         if let text = try? String(contentsOf: dir.appendingPathComponent("qemu.pid"), encoding: .utf8),
            let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), kill(pid, 0) == 0 {
             vm.pid = pid
@@ -196,12 +322,13 @@ final class WindowsVMs {
         return vm
     }
 
-    func create(id: String, cpus: Int, memoryGB: Int, diskGB: Int) async throws -> String {
-        guard let qemuImg = Self.tool("qemu-img") else { throw CLIError(message: "QEMU is not installed. Use Install QEMU first.") }
-        guard hasSecureBootFirmware else { throw CLIError(message: "Windows 11 needs Secure Boot. Use Get Secure Boot Firmware first.") }
+    func create(id: String, cpus: Int, memoryGB: Int, diskGB: Int, network: Network) async throws -> String {
+        let qemuImg = try Self.tool("qemu-img")
+        try ensureFirmware()
         let vars = secureBootVars
         // UNIX socket paths are limited to 104 bytes, so keep names short.
         guard id.utf8.count <= 24 else { throw CLIError(message: "Use a name of 24 characters or fewer") }
+        try checkForwardConflicts(network, id: id)
         let dir = vmRoot.appendingPathComponent(id, isDirectory: true)
         let fm = FileManager.default
         guard !fm.fileExists(atPath: dir.path) else { throw CLIError(message: "\(id) already exists") }
@@ -210,7 +337,8 @@ final class WindowsVMs {
             // Per-VM copy of the UEFI variable store (Microsoft keys enrolled) so boot entries and Secure Boot state persist.
             try fm.copyItem(at: vars, to: dir.appendingPathComponent("vars.fd"))
             _ = try await ContainerCLI.run(qemuImg, ["create", "-f", "qcow2", dir.appendingPathComponent("disk.qcow2").path, "\(diskGB)G"], timeout: 60)
-            let config: [String: Any] = ["cpus": cpus, "memoryGB": memoryGB, "diskGB": diskGB, "created": ISO8601DateFormatter().string(from: Date())]
+            let config: [String: Any] = ["cpus": cpus, "memoryGB": memoryGB, "diskGB": diskGB, "network": network.json,
+                                         "mac": Self.randomMAC(), "created": ISO8601DateFormatter().string(from: Date())]
             try JSONSerialization.data(withJSONObject: config).write(to: dir.appendingPathComponent("vm.json"))
         } catch {
             try? fm.removeItem(at: dir)
@@ -220,13 +348,14 @@ final class WindowsVMs {
     }
 
     func start(id: String, isos: [String]) async throws -> String {
-        guard let qemu = Self.tool("qemu-system-aarch64"), let swtpm = Self.tool("swtpm") else {
-            throw CLIError(message: "QEMU and swtpm are required. Use Install QEMU first.")
-        }
-        guard hasSecureBootFirmware else { throw CLIError(message: "Secure Boot firmware is missing. Use Get Secure Boot Firmware.") }
+        let qemu = try Self.tool("qemu-system-aarch64"), swtpm = try Self.tool("swtpm")
+        try ensureFirmware()
         let code = secureBootCode
         let vm = try vm(id)
         guard !vm.running else { throw CLIError(message: "\(id) is already running") }
+        if let busy = vm.network.forwards.first(where: { !Self.hostPortFree($0.host) }) {
+            throw CLIError(message: "Mac port \(busy.host) is already in use by another app, so it can't be forwarded to Windows port \(busy.guest). Free the port or change \(id)'s network rules, then start again.")
+        }
         let dir = vm.dir
         let path = { (name: String) in dir.appendingPathComponent(name).path }
         let fm = FileManager.default
@@ -243,7 +372,7 @@ final class WindowsVMs {
         ], timeout: 15)
 
         var args = [
-            "-name", id,
+            "-name", id, "-L", Bundled.qemuData.path,
             "-machine", "virt,highmem=on",
             "-accel", "hvf", "-cpu", "host",
             "-smp", "\(vm.cpus)", "-m", "\(vm.memoryGB)G",
@@ -260,8 +389,6 @@ final class WindowsVMs {
             // NVMe uses Windows' inbox driver, so setup sees the disk without loading VirtIO storage drivers.
             "-drive", "if=none,id=disk0,format=qcow2,discard=unmap,file=\(path("disk.qcow2"))",
             "-device", "nvme,drive=disk0,serial=containerscope0,bootindex=1",
-            // Network needs the VirtIO driver from virtio-win.iso; until then setup runs offline (OOBE\BYPASSNRO).
-            "-nic", "user,model=virtio-net-pci",
             "-rtc", "base=localtime",
             "-monitor", "unix:\(path("monitor.sock")),server=on,wait=off",
             "-pidfile", path("qemu.pid"),
@@ -272,6 +399,7 @@ final class WindowsVMs {
             args += ["-drive", "if=none,id=cd\(index),media=cdrom,readonly=on,file=\(iso)",
                      "-device", "usb-storage,drive=cd\(index),removable=on" + (index == 0 ? ",bootindex=0" : "")]
         }
+        args += Self.networkArgs(vm)
         try isos.joined(separator: "\n").write(toFile: path("media.txt"), atomically: true, encoding: .utf8)
 
         let process = Process()
@@ -308,19 +436,23 @@ final class WindowsVMs {
         try JSONSerialization.data(withJSONObject: config).write(to: file, options: .atomic)
     }
 
-    /// Builds Ubuntu's Secure Boot `qemu-efi-aarch64` from source with the ContainerScope boot logo,
-    /// inside the container engine itself (Firmware/build-aavmf.sh, bundled in Resources/Firmware).
-    func installSecureBootFirmware(cli: ContainerCLI) async throws -> String {
-        guard let recipe = Bundle.main.resourceURL?.appendingPathComponent("Firmware"),
-              FileManager.default.fileExists(atPath: recipe.appendingPathComponent("build-aavmf.sh").path) else {
-            throw CLIError(message: "Firmware recipe missing from the app bundle. Rebuild with Scripts/build-app.sh.")
-        }
-        try FileManager.default.createDirectory(at: firmwareDir, withIntermediateDirectories: true)
-        return try await cli.run([
-            "run", "--rm", "-c", "8", "-m", "8G",
-            "-v", "\(recipe.path):/in:ro", "-v", "\(firmwareDir.path):/out",
-            "docker.io/library/ubuntu:24.04", "sh", "/in/build-aavmf.sh",
-        ], timeout: 1800)
+    func setNetwork(id: String, network: Network) throws {
+        let vm = try vm(id)
+        guard !vm.running else { throw CLIError(message: "Shut down \(id) before changing its network") }
+        try checkForwardConflicts(network, id: id)
+        let file = vm.dir.appendingPathComponent("vm.json")
+        var config = (try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]) ?? [:]
+        config["network"] = network.json
+        if !Self.validMAC(config["mac"] as? String ?? "") { config["mac"] = vm.mac }
+        try JSONSerialization.data(withJSONObject: config).write(to: file, options: .atomic)
+    }
+
+    /// QEMU user networking (slirp: outbound NAT, guest at 10.0.2.15) on a virtio-net-pci adapter with
+    /// the VM's own MAC. Forwards listen on 127.0.0.1 only, so the guest isn't exposed to the LAN.
+    static func networkArgs(_ vm: VM) -> [String] {
+        guard vm.network.mode != "none" else { return ["-nic", "none"] }
+        let forwards = vm.network.forwards.map { ",hostfwd=tcp:127.0.0.1:\($0.host)-:\($0.guest)" }.joined()
+        return ["-netdev", "user,id=net0" + forwards, "-device", "virtio-net-pci,netdev=net0,mac=\(vm.mac)"]
     }
 
     private func killTPM(_ dir: URL) {

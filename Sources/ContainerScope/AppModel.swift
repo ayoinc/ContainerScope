@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 enum Route: String, CaseIterable, Identifiable {
-    case overview, containers, images, volumes, networks, machines, windows, kubernetes, engine
+    case overview, containers, images, volumes, networks, orchestration, linux, windows, engine
 
     var id: String { rawValue }
 
@@ -13,9 +13,9 @@ enum Route: String, CaseIterable, Identifiable {
         case .images: "Images"
         case .volumes: "Volumes"
         case .networks: "Networks"
-        case .machines: "Machines"
-        case .windows: "Windows"
-        case .kubernetes: "Kubernetes"
+        case .orchestration: "Orchestration"
+        case .linux: "Linux"
+        case .windows: "Windows on ARM"
         case .engine: "Engine"
         }
     }
@@ -27,17 +27,17 @@ enum Route: String, CaseIterable, Identifiable {
         case .images: "square.stack.3d.up"
         case .volumes: "externaldrive"
         case .networks: "network"
-        case .machines: "desktopcomputer"
+        case .orchestration: "helm"
+        case .linux: "terminal"
         case .windows: "pc"
-        case .kubernetes: "helm"
         case .engine: "engine.combustion"
         }
     }
 
     /// Sidebar groups — two levels at most (HIG Sidebars).
     static let sections: [(title: String, routes: [Route])] = [
-        ("Containers", [.overview, .containers, .images, .volumes, .networks]),
-        ("Virtualization", [.machines, .windows, .kubernetes]),
+        ("Containers", [.overview, .containers, .images, .volumes, .networks, .orchestration]),
+        ("Virtualization", [.linux, .windows]),
         ("System", [.engine]),
     ]
 }
@@ -123,7 +123,7 @@ final class AppModel {
         Task {
             defer { isStartingServices = false }
             do {
-                _ = try await cli.run(["system", "start", "--disable-kernel-install"], timeout: 120)
+                _ = try await cli.startServices()
             } catch {
                 statusError = error.localizedDescription
             }

@@ -136,6 +136,17 @@ CS.views.overview = function overview(root) {
       ui.button("Details", { onClick: () => CS.app.navigate("engine") }))));
   }
 
+  /* Anything that stops ContainerScope working on this Mac (wrong location, missing engine); details on Engine. */
+  const setupSlot = h("div");
+  healthSlot.before(setupSlot);
+  function renderSetup(host) {
+    const blocking = CS.requirements(host).filter((r) => r.state === "missing");
+    setupSlot.replaceChildren(...blocking.map((r) => h("div", { class: "callout warning banner", role: "alert" },
+      h("div", { class: "text" }, h("strong", {}, `${r.name}: `), r.detail),
+      ui.button("Requirements", { onClick: () => CS.app.navigate("engine") }))));
+  }
+  CS.json("hostInfo").then(renderSetup).catch(() => {});
+
   renderTiles(); renderCharts(); renderDisk(); renderRunning(); renderHealth();
 
   return {

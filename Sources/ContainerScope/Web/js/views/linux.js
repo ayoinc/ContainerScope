@@ -1,8 +1,8 @@
 "use strict";
 CS.views = CS.views || {};
 
-/* Machines: persistent Linux VMs (`container machine`), including nested virtualization. */
-CS.views.machines = function machines(root) {
+/* Linux: persistent Linux VMs (`container machine`) from preset distributions, including nested virtualization. */
+CS.views.linux = function linux(root) {
   const { h, fmt, ui } = CS;
   const store = CS.store;
   const probes = {};          // machine id → probe result | { error } | "running"
@@ -10,8 +10,13 @@ CS.views.machines = function machines(root) {
   let kernelPath = "";
 
   const field = (label, control, wide) => h("label", { class: `field${wide ? " wide" : ""}` }, h("span", {}, label), control);
-  const name = h("input", { type: "text", placeholder: "dev-vm", "aria-label": "Machine name" });
-  const image = h("input", { type: "text", class: "mono", value: "docker.io/library/ubuntu:24.04", "aria-label": "Image" });
+  const name = h("input", { type: "text", placeholder: "dev-vm", autocapitalize: "off", autocorrect: "off", spellcheck: false, "aria-label": "Machine name" });
+  const custom = "custom";
+  let presets = [];
+  const distro = h("select", { "aria-label": "Distribution", onchange: () => syncDistro() }, h("option", { value: custom }, "Custom image…"));
+  const distroNote = h("span", { class: "secondary" });
+  const image = h("input", { type: "text", class: "mono", placeholder: "registry/repo:tag with /sbin/init", "aria-label": "Custom image" });
+  const imageField = field("Image", image, true);
   const cpus = h("input", { type: "number", min: 1, max: 64, value: 4, "aria-label": "CPUs" });
   const memory = h("input", { type: "text", value: "4G", "aria-label": "Memory" });
   const homeMount = h("select", { "aria-label": "Home directory mount" },
@@ -29,7 +34,8 @@ CS.views.machines = function machines(root) {
       ui.sectionHeader("New Machine", "A persistent Linux VM booted from an OCI image"),
       h("div", { class: "group stack-tight" },
         h("div", { class: "form-grid" },
-          field("Name", name), field("Image", image, true), field("CPUs", cpus), field("Memory", memory), field("Home folder", homeMount)),
+          field("Name", name), field("Distribution", distro), imageField, field("CPUs", cpus), field("Memory", memory), field("Home folder", homeMount)),
+        distroNote,
         h("div", { class: "row wrap" },
           nestedLabel,
           h("span", { class: "spacer" }),
@@ -43,13 +49,32 @@ CS.views.machines = function machines(root) {
     h("section", {}, h("div", { class: "section-header" }, h("h2", {}, "Machines"), h("span", { class: "summary", id: "machines-summary" })), listSlot),
     probeSlot));
 
+  function syncDistro() {
+    const preset = presets.find((p) => p.id === distro.value);
+    imageField.style.display = preset ? "none" : "";
+    distroNote.replaceChildren(preset
+      ? h("span", {}, h("span", { class: "mono" }, preset.ref), ` — ${preset.note}. First use builds a local machine image with an init system and sudo (a few minutes).`)
+      : "Any OCI image with /sbin/init, a POSIX shell, and getent. Install sudo in it for passwordless sudo.");
+  }
+
+  async function loadPresets() {
+    try { presets = await CS.json("machinePresets"); } catch { presets = []; }
+    distro.replaceChildren(...presets.map((p) => h("option", { value: p.id }, p.name)), h("option", { value: custom }, "Custom image…"));
+    distro.value = presets[0]?.id || custom;
+    syncDistro();
+  }
+
   async function create() {
+    const preset = presets.find((p) => p.id === distro.value);
     const params = {
-      id: name.value.trim(), ref: image.value.trim(), cpus: Number(cpus.value) || undefined,
+      id: name.value.trim(), cpus: Number(cpus.value) || undefined,
       memory: memory.value.trim(), homeMount: homeMount.value, virtualization: nested.checked, kernel: kernelPath,
+      ...(preset ? { preset: preset.id } : { ref: image.value.trim() }),
     };
     if (!params.id) { name.focus(); return; }
-    createStatus.replaceChildren(h("div", { class: "row secondary" }, h("div", { class: "spinner" }), `Creating ${params.id} — pulling the image and booting…`));
+    if (!preset && !params.ref) { image.focus(); return; }
+    createStatus.replaceChildren(h("div", { class: "row secondary" }, h("div", { class: "spinner" }),
+      preset ? `Creating ${params.id} — preparing the ${preset.name} machine image (first time only), then booting…` : `Creating ${params.id} — pulling the image and booting…`));
     const result = await CS.act(createButton, "machineCreate", params, `Machine ${params.id} created`);
     createStatus.replaceChildren(result.ok ? "" : h("pre", { class: "console", style: { color: "var(--red)" } }, result.error));
     if (result.ok) { name.value = ""; store.load("machines"); }
@@ -73,7 +98,7 @@ CS.views.machines = function machines(root) {
     if (!store.data.machines) { listSlot.replaceChildren(ui.loading()); return; }
     const all = store.data.machines;
     if (summary) summary.textContent = `${all.filter((m) => m.status === "running").length} running · ${all.length} total`;
-    if (!all.length) { listSlot.replaceChildren(h("div", { class: "group" }, ui.empty("box", "No machines", "Create one above — Ubuntu, Debian, Fedora, or any OCI image with an init system."))); return; }
+    if (!all.length) { listSlot.replaceChildren(h("div", { class: "group" }, ui.empty("box", "No machines", "Create one above from a distribution, or from any OCI image with an init system."))); return; }
     ui.showTable(listSlot, ui.table([
       { title: "Name", width: "22%", render: (m) => [h("span", { class: "primary-cell" }, m.id, m.default ? h("span", { class: "badge accent", style: { marginLeft: "6px" } }, "Default") : null), h("span", { class: "sub" }, ui.status(m.status))] },
       { title: "Address", width: "15%", render: (m) => h("span", { class: "mono" }, m.ipAddress || "—") },
@@ -132,6 +157,7 @@ CS.views.machines = function machines(root) {
     nestedLabel.title = host?.nestedVirtualization ? "Expose EL2 to the guest (Apple M3 or later)" : "Requires Apple M3 or later and macOS 15+";
   }).catch(() => {});
 
+  loadPresets();
   render();
   return { update(topic) { if (topic === "machines") render(); }, destroy() {} };
 };

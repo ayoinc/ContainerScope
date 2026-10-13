@@ -4,7 +4,7 @@ import Virtualization
 /// Host facts that decide which virtualization features the UI can offer.
 /// Uses Virtualization.framework's own capability APIs rather than guessing from the chip name.
 enum HostInfo {
-    static func json() -> String {
+    static func json(cli: ContainerCLI) -> String {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let rosetta: String = switch VZLinuxRosettaDirectoryShare.availability {
         case .installed: "installed"
@@ -22,7 +22,10 @@ enum HostInfo {
             "nestedVirtualization": VZGenericPlatformConfiguration.isNestedVirtualizationSupported,
             "rosetta": rosetta,
             "dockerSocket": dockerSocket() as Any,
-            "homebrew": ContainerCLI.homebrew?.path as Any,
+            // Which engine the app drives (see ContainerCLI) and what ships inside the app.
+            "engine": ["source": cli.source?.rawValue ?? "missing", "path": cli.executable?.path ?? ""],
+            "bundled": Bundled.versions,
+            "appPath": Bundle.main.bundlePath,
         ]
         let data = (try? JSONSerialization.data(withJSONObject: info, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
@@ -40,7 +43,7 @@ enum HostInfo {
 
     /// socktainer exposes a Docker Engine API on top of Apple container; Vagrant/Docker clients can target it.
     /// Checked: per-user launch, then Homebrew services (`brew services start socktainer`).
-    private static func dockerSocket() -> String? {
+    static func dockerSocket() -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return [
             "\(home)/.socktainer/container.sock",

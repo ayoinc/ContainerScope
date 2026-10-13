@@ -11,15 +11,27 @@ VERSION="${VERSION:-$(cat "$ROOT/VERSION")}"
 BUILD="${BUILD:-$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)}"
 
 cd "$ROOT"
+DEPS="$ROOT/build/deps"
+for stage in engine/bin/container kernel qemu/bin/qemu-system-aarch64 firmware/VERSION thirdparty/versions.json; do
+  [ -e "$DEPS/$stage" ] || { echo "Missing build/deps/$stage; run Scripts/fetch-deps.sh first" >&2; exit 1; }
+done
+
 swift build -c "$CONFIG"
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/ContainerScope"
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Firmware"
 cp "$BIN" "$APP/Contents/MacOS/ContainerScope"
 cp -R "$ROOT/Sources/ContainerScope/Web" "$APP/Contents/Resources/Web"
 cp "$ROOT/Artwork/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-cp -R "$ROOT/Firmware" "$APP/Contents/Resources/Firmware"
+# Bundled third-party components (see Bundled.swift). ditto keeps Apple's engine signatures intact.
+ditto "$DEPS/engine" "$APP/Contents/Resources/Engine"
+ditto "$DEPS/kernel" "$APP/Contents/Resources/Kernel"
+ditto "$DEPS/qemu/bin" "$APP/Contents/Resources/QEMU/bin"
+ditto "$DEPS/qemu/lib" "$APP/Contents/Resources/QEMU/lib"
+ditto "$DEPS/qemu/share" "$APP/Contents/Resources/QEMU/share"
+cp "$DEPS/firmware/"AAVMF_*.fd "$DEPS/firmware/VERSION" "$APP/Contents/Resources/Firmware/"
+ditto "$DEPS/thirdparty" "$APP/Contents/Resources/ThirdParty"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -45,10 +57,16 @@ PLIST
 # SIGN_IDENTITY: a Developer ID Application identity (name or SHA-1) for distributable builds,
 # signed with the hardened runtime and a secure timestamp as notarization requires.
 # Unset: ad-hoc signature for local use.
+# Inside out: QEMU's libraries, then its tools (qemu-system-aarch64 needs the Hypervisor
+# entitlement), then the app, which seals everything else. The engine keeps Apple's signature.
 if [ -n "${SIGN_IDENTITY:-}" ]; then
-  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
-  codesign --verify --strict --deep "$APP"
+  set -- --force --options runtime --timestamp --sign "$SIGN_IDENTITY"
 else
-  codesign --force --sign - "$APP" >/dev/null
+  set -- --force --sign -
 fi
+codesign "$@" "$APP"/Contents/Resources/QEMU/lib/*.dylib >/dev/null
+codesign "$@" "$APP/Contents/Resources/QEMU/bin/qemu-img" "$APP/Contents/Resources/QEMU/bin/swtpm" >/dev/null
+codesign "$@" --entitlements "$ROOT/Scripts/qemu.entitlements" "$APP/Contents/Resources/QEMU/bin/qemu-system-aarch64" >/dev/null
+codesign "$@" "$APP" >/dev/null
+codesign --verify --strict --deep "$APP"
 echo "$APP"

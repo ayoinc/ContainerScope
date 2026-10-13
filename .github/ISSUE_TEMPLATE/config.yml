@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/ayoinc/ContainerScope/security/advisories/new
+    about: Report privately, not as a public issue.
+  - name: User guides
+    url: https://github.com/ayoinc/ContainerScope/tree/main/docs/user
+    about: Getting started, Windows on ARM, troubleshooting.

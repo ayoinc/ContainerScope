@@ -1,73 +1,90 @@
 <p align="center"><img src="Artwork/hero.png" alt="ContainerScope" width="100%"></p>
 
-ContainerScope is a native macOS app (Swift + WebKit) for Apple's [`container`](https://github.com/apple/container) engine. It shows your containers, images, volumes, networks and engine health. It also runs Windows 11 on ARM virtual machines on Hypervisor.framework, with nothing between the app and the raw QEMU tools.
+ContainerScope is a native macOS app for running Linux containers, Linux virtual machines, Kubernetes clusters and Windows 11 on ARM virtual machines on an Apple silicon Mac. It's built on Apple's [`container`](https://github.com/apple/container) engine and on QEMU with Hypervisor.framework, and it ships everything they need inside the app: download it, open it, and it works. No Homebrew, no administrator password.
+
+ContainerScope is free and open source under the [Apache License 2.0](LICENSE).
 
 ## Install
 
-Download `ContainerScope-<version>.dmg` from [Releases](../../releases), open it, and drag **ContainerScope** to **Applications**. Release builds are signed with a Developer ID and notarized by Apple, so they open without Gatekeeper warnings.
+1. Download `ContainerScope-<version>.dmg` (about 200 MB) from [Releases](https://github.com/ayoinc/ContainerScope/releases/latest).
+2. Open it and drag **ContainerScope** to **Applications**.
+3. Open ContainerScope. On first start it starts the container engine and installs the Linux kernel for containers.
 
-Requires macOS 26 on Apple Silicon with Apple `container` installed (`brew install container`).
+Release builds are signed with a Developer ID and notarized by Apple, so they open without Gatekeeper warnings. Each release also has a `.sha256` file to check the download:
 
-## What's inside
+```sh
+shasum -a 256 -c ContainerScope-<version>.dmg.sha256
+```
 
-| Section | What it does |
+### Requirements
+
+- A Mac with Apple silicon (M1 or later) running **macOS 26** or later.
+- **Rosetta 2** for Kubernetes and x86-64 images. It's part of macOS; ContainerScope installs it in one click.
+- For Windows VMs: a **Windows 11 ARM64 ISO** and the **VirtIO driver ISO**. ContainerScope downloads both for you from Microsoft and Fedora.
+
+Container images are pulled from registries when you use them. The **Requirements** section of the Engine page tags each item **Included**, **Ready**, **You provide**, **Optional** or **Needs attention**; Overview shows a banner only for items that need attention.
+
+## What it does
+
+| Sidebar | What you get |
 |---|---|
-| Overview, Containers, Images, Volumes, Networks | Live state and usage of everything the `container` engine manages |
-| Machines | Linux machines, including nested virtualization |
-| Kubernetes | Clusters running on the engine |
-| Windows | Windows 11 on ARM VMs: QEMU + HVF, UEFI Secure Boot, swtpm TPM 2.0, NVMe disk, VirtIO network and display |
-| Engine | Engine status, start/stop/restart, upgrades, kernel |
+| **Containers** › Overview | Live CPU, memory, network and disk activity, running containers, disk usage and engine health |
+| **Containers** › Containers, Images, Volumes, Networks | Everything the engine manages: start, stop, shell, logs, processes, inspect, pull, prune, network health checks |
+| **Containers** › Orchestration | Kubernetes clusters on the engine (`container k8s`): nodes, pods, image loading, kubeconfig. Docker Compose projects through socktainer |
+| **Virtualization** › Linux | Persistent Linux VMs (`container machine`) from Ubuntu, Debian, Fedora, Alpine or any OCI image, with nested virtualization on M3 or later |
+| **Virtualization** › Windows on ARM | Windows 11 VMs on QEMU + Hypervisor.framework: UEFI Secure Boot, TPM 2.0, NVMe disk, VirtIO network and display, installer downloads |
+| **System** › Engine | Engine status, start/stop/restart, updates, kernels, Rosetta, requirements, Docker API (socktainer) and Vagrant |
 
-### Windows on ARM
+### What's in the app
 
-- **Windows download:** the app gets fresh links to the official Microsoft Arm64 ISO for any version and language. It also downloads the Fedora VirtIO driver ISO. Both go to a temporary folder, and **Clean Up** deletes them when you're done.
-- **Secure Boot firmware:** **Get Secure Boot Firmware** builds Ubuntu's `qemu-efi-aarch64` package from source inside your container engine, with the ContainerScope logo in place of TianoCore. Ubuntu's build flags and pre-enrolled Microsoft keys are kept as they are. The recipe is in [`Firmware/build-aavmf.sh`](Firmware/build-aavmf.sh); to run it by hand:
-  ```sh
-  container run --rm -c 8 -m 8G -v "$PWD/Firmware:/in:ro" -v "$OUT:/out" \
-    docker.io/library/ubuntu:24.04 sh /in/build-aavmf.sh
-  ```
-- **Tools:** QEMU and swtpm come from Homebrew. **Install QEMU** in the app runs `brew install qemu swtpm`.
-- **Display:** VMs start with `ramfb`, a fixed-size framebuffer Windows can use without extra drivers, so Setup works. After installing the ARM64 VirtIO drivers (`pnputil /add-driver E:\*\w11\ARM64\*.inf /subdirs /install`; `virtio-win-guest-tools.exe` is x64-only), switch the VM to **VirtIO GPU** (`viogpudo`) for a resizable display.
+Everything below is inside `ContainerScope.app`, so it works offline once installed:
 
-## Build
-
-```sh
-Scripts/build-app.sh      # build/ContainerScope.app (SwiftPM, no Xcode project)
-Scripts/build-dmg.sh      # build/ContainerScope-<version>.dmg
-```
-
-Without extra settings, builds get an ad-hoc signature for local use. For a signed, notarized local build:
-
-```sh
-export SIGN_IDENTITY="Developer ID Application: …"    # or the identity's SHA-1
-export NOTARY_PROFILE=containerscope                 # xcrun notarytool store-credentials containerscope …
-Scripts/build-app.sh && Scripts/build-dmg.sh
-```
-
-To change the artwork, edit the SVGs in [`Artwork/`](Artwork). [`mark.svg`](Artwork/mark.svg) is the one source for the logo. Run `Artwork/render.sh` (needs `brew install resvg`) to regenerate `AppIcon.icns`, `hero.png` and `Firmware/Logo.png`.
-
-## Releases
-
-The version lives in [`VERSION`](VERSION). The build number is the git commit count.
-
-```sh
-Scripts/release.sh 0.2.0
-```
-
-This bumps `VERSION`, commits, tags `v0.2.0` and pushes. The tag starts the [Release workflow](.github/workflows/release.yml) on a `macos-26` runner, which:
-
-1. Checks that the tag matches `VERSION`.
-2. Imports the Developer ID identity into a temporary keychain.
-3. Builds the app with the hardened runtime.
-4. Notarizes the DMG and staples the ticket.
-5. Publishes a GitHub Release with the DMG, its SHA-256 and generated release notes.
-
-The Release workflow needs these repository settings:
-
-| Setting | Kind | Contents |
+| Component | Version | Used for |
 |---|---|---|
-| `SIGN_IDENTITY` | Variable | SHA-1 of the Developer ID Application identity (`security find-identity -v -p codesigning`) |
-| `DEVELOPER_ID_P12_BASE64` / `DEVELOPER_ID_P12_PASSWORD` | Secret | Developer ID Application certificate and private key (`.p12`, base64) |
-| `NOTARY_KEY_P8` / `NOTARY_KEY_ID` / `NOTARY_ISSUER` | Secret | App Store Connect API key with Developer access, used by `notarytool` |
+| Apple `container` engine | 1.5.0 | Containers, Linux machines, Kubernetes. Apple's own signed build, unmodified |
+| Linux kernel (Kata Containers build) | 6.18.35 | The kernel every container and Linux VM boots |
+| QEMU and swtpm | 11.1.2 / 0.10.2 | Windows on ARM VMs and their TPM 2.0 |
+| UEFI firmware (Ubuntu AAVMF) | Ubuntu 24.04 | Secure Boot for Windows, with Microsoft's keys and the ContainerScope boot logo |
 
-Every push to `main` and every pull request runs [CI](.github/workflows/ci.yml), which uploads the DMG as a build artifact.
+If you already have Apple's `container` installed (for example with Homebrew), ContainerScope uses yours instead of the bundled copy. See [Third-party notices](THIRD_PARTY_NOTICES.md) for licences and source code.
+
+## Documentation
+
+**Using ContainerScope**
+
+- [Getting started](docs/user/getting-started.md) — install, first launch, requirements, where your data lives
+- [Containers, Linux VMs and orchestration](docs/user/containers-linux-orchestration.md) — containers, images, Linux machines, Kubernetes, Docker API and Vagrant
+- [Windows on ARM](docs/user/windows-on-arm.md) — create a Windows 11 VM, install it and add the VirtIO drivers
+- [Troubleshooting](docs/user/troubleshooting.md)
+- [Uninstalling](docs/user/uninstall.md)
+
+**Working on ContainerScope**
+
+- [Architecture](docs/developer/architecture.md) — how the app is put together
+- [Building](docs/developer/building.md) — build the app and DMG from source
+- [Bundled dependencies](docs/developer/dependencies.md) — what's bundled, how it's fetched, pinned and updated
+- [Releasing](docs/developer/releasing.md) — signing, notarization and publishing
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Read the [contributing guide](CONTRIBUTING.md) first, and follow the [code of conduct](CODE_OF_CONDUCT.md). To report a security problem, use [private vulnerability reporting](SECURITY.md), not a public issue.
+
+Quick start for developers (Apple silicon, macOS 26, Xcode 26 or its Command Line Tools):
+
+```sh
+git clone https://github.com/ayoinc/ContainerScope.git && cd ContainerScope
+brew install qemu swtpm            # QEMU and swtpm are copied out of Homebrew into the bundle
+Scripts/fetch-deps.sh              # engine, kernel, QEMU and firmware into build/deps
+Scripts/build-app.sh               # build/ContainerScope.app
+open build/ContainerScope.app
+```
+
+See [Building](docs/developer/building.md) for details.
+
+## Licence
+
+ContainerScope is licensed under the [Apache License, Version 2.0](LICENSE). Copyright 2026 Ayodele Ajayi; see [NOTICE](NOTICE).
+
+The components bundled in the app keep their own licences (Apache-2.0, GPL-2.0, LGPL, BSD and others). [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists them and explains where to get their source code.
+
+ContainerScope is an independent project and is not affiliated with Apple or Microsoft.

@@ -7,17 +7,29 @@ CS.views.engine = function engine(root) {
   const store = CS.store;
   let versions = null, latest = null, latestError = null, host = null;
 
-  const slots = { services: h("div"), updates: h("div"), health: h("div"), host: h("div"), kernel: h("div"), docker: h("div") };
+  const slots = { requirements: h("div"), services: h("div"), updates: h("div"), health: h("div"), host: h("div"), kernel: h("div"), docker: h("div") };
   root.replaceChildren(h("div", { class: "stack" },
+    h("section", {}, slots.requirements),
     h("div", { class: "grid cols-2" }, slots.services, slots.updates),
     h("section", {}, slots.health),
     h("div", { class: "grid cols-2" }, slots.host, slots.kernel),
-    h("section", {}, slots.docker),
-    h("section", {},
-      ui.sectionHeader("Windows Guests"),
-      h("div", { class: "group callout" },
-        h("strong", {}, "Not available on Apple's container stack. "),
-        "Virtualization.framework boots Linux and macOS guests only. Windows 11 on Arm needs a QEMU/HVF-based hypervisor such as UTM, or Parallels Desktop / VMware Fusion."))));
+    h("section", {}, slots.docker)));
+
+  /* Included in the app vs what the user provides, with the one-click fixes the app can do itself. */
+  function renderRequirements() {
+    if (!host) { slots.requirements.replaceChildren(ui.sectionHeader("Requirements"), ui.loading()); return; }
+    const items = CS.requirements(host);
+    const included = items.filter((r) => r.state === "included").length;
+    slots.requirements.replaceChildren(
+      ui.sectionHeader("Requirements", `${included} included in ContainerScope · ${items.filter((r) => r.state === "action").length} you provide`),
+      h("div", { class: "group requirements" }, items.map((r) => h("div", { class: "requirement" },
+        h("strong", {}, r.name),
+        h("div", { class: "row" },
+          r.install ? ui.button("Install Rosetta…", { kind: "plain", onClick: async (e) => { if ((await CS.act(e.currentTarget, "installRosetta", {}, "Rosetta installed")).ok) refreshHost(); } }) : null,
+          r.route ? ui.button("Open", { kind: "plain", onClick: () => CS.app.navigate(r.route) }) : null,
+          h("span", { class: `tag ${r.state}` }, CS.requirementLabel[r.state])),
+        h("div", { class: "detail" }, r.detail)))));
+  }
 
   const versionOf = (name) => versions?.find((v) => v.appName === name)?.version;
   const semver = (v) => (v || "").replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
@@ -38,6 +50,7 @@ CS.views.engine = function engine(root) {
           h("span", { class: `status ${running ? "running" : "stopped"}` }, running ? "Running" : "Stopped"),
           h("span", { class: "secondary" }, running ? `apiserver ${versionOf("container-apiserver") || store.data.status?.server?.version || ""}` : (store.errors.status || "container-apiserver is not responding"))),
         h("dl", { class: "kv" },
+          h("dt", {}, "Engine"), h("dd", {}, { bundled: "Bundled with ContainerScope", homebrew: "Homebrew", installer: "Apple's installer", custom: "CONTAINER_BIN", path: "From PATH" }[host?.engine?.source] || "—"),
           h("dt", {}, "CLI"), h("dd", {}, versionOf("container") || store.data.status?.client?.version || "—"),
           h("dt", {}, "Install root"), h("dd", { class: "mono" }, store.data.status?.paths?.installRoot || "—"),
           h("dt", {}, "Data"), h("dd", { class: "mono" }, store.data.status?.paths?.appRoot || "—")),
@@ -51,7 +64,7 @@ CS.views.engine = function engine(root) {
   function renderUpdates() {
     const installed = versionOf("container") || store.data.status?.client?.version;
     const available = latest?.tag;
-    const brew = (store.data.status?.paths?.installRoot || "").includes("/Cellar/");
+    const source = host?.engine?.source;
     const outdated = installed && available && newer(available, installed);
     slots.updates.replaceChildren(
       ui.sectionHeader("Updates"),
@@ -64,11 +77,12 @@ CS.views.engine = function engine(root) {
               : outdated ? `v${available.replace(/^v/, "")} available · released ${fmt.relative(latest.publishedAt)}`
                 : `Up to date · latest is ${available} (${fmt.relative(latest.publishedAt)})`)),
         h("div", { class: "row" },
-          outdated && brew ? ui.button(`Upgrade to ${available}`, { icon: "download", kind: "prominent", onClick: async (e) => {
+          outdated && source === "homebrew" ? ui.button(`Upgrade to ${available}`, { icon: "download", kind: "prominent", onClick: async (e) => {
             const result = await CS.act(e.currentTarget, "engineUpgrade", {}, "Engine upgraded");
             if (result.ok) { await refreshVersions(); store.refreshAll(); }
           } }) : null,
-          outdated && !brew ? h("span", { class: "secondary" }, "Installed from the signed .pkg — download the new installer from GitHub.") : null,
+          outdated && source === "bundled" ? h("span", { class: "secondary" }, "The bundled engine updates with ContainerScope. Get the latest ContainerScope release.") : null,
+          outdated && source && source !== "homebrew" && source !== "bundled" ? h("span", { class: "secondary" }, "Installed from the signed .pkg — download the new installer from GitHub.") : null,
           latest?.url ? ui.button("Release Notes", { kind: "plain", onClick: () => CS.call("openURL", { url: latest.url }) }) : null,
           ui.button("Check Again", { kind: "plain", onClick: () => refreshLatest() }))));
   }
@@ -159,6 +173,9 @@ CS.views.engine = function engine(root) {
   end
 end`;
     const env = socket ? `export DOCKER_HOST=unix://${socket}` : "";
+    const commands = `vagrant up --provider=docker
+vagrant docker-exec -- uname -a
+vagrant destroy -f`;
     slots.docker.replaceChildren(
       ui.sectionHeader("Docker API & Vagrant", socket ? "socktainer detected" : "No Docker API socket found"),
       h("div", { class: "group stack-tight" },
@@ -167,7 +184,9 @@ end`;
           : h("p", { class: "secondary" }, "Install socktainer (brew install socktainer) to expose a Docker Engine API backed by Apple container."),
         socket ? copyBlock(env) : null,
         socket ? h("p", { class: "secondary" }, "Vagrantfile using the docker provider (run with DOCKER_HOST exported):") : null,
-        socket ? copyBlock(vagrantfile) : null));
+        socket ? copyBlock(vagrantfile) : null,
+        socket ? h("p", { class: "secondary" }, "Then run these in the same shell. The image has no SSH server (has_ssh = false), so use vagrant docker-exec rather than vagrant ssh:") : null,
+        socket ? copyBlock(commands) : null));
   }
 
   function copyBlock(text) {
@@ -182,9 +201,9 @@ end`;
     try { latest = await CS.json("latestRelease"); } catch (error) { latestError = String(error?.message || error); }
     renderUpdates();
   }
-  async function refreshHost() { host = await CS.json("hostInfo").catch(() => null); renderHost(); renderDocker(); }
+  async function refreshHost() { host = await CS.json("hostInfo").catch(() => null); renderRequirements(); renderServices(); renderUpdates(); renderHost(); renderDocker(); }
 
-  renderServices(); renderUpdates(); renderHealth(); renderHost(); renderKernel(); renderDocker();
+  renderRequirements(); renderServices(); renderUpdates(); renderHealth(); renderHost(); renderKernel(); renderDocker();
   refreshVersions(); refreshLatest(); refreshHost();
   for (const id of store.natNetworks()) if (!store.health[id]) store.diagnose(id);
 

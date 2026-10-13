@@ -103,7 +103,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         // MARK: Engine
         case "version": return try await cli.run(["system", "version", "--format", "json"], timeout: 10)
         case "latestRelease": return try await ReleaseCheck.latest()
-        case "hostInfo": return HostInfo.json()
+        case "hostInfo": return HostInfo.json(cli: cli)
         case "routeInterface": return await NetworkHealth.defaultRouteInterface() ?? ""
         case "networkDiagnose": return try await NetworkHealth.diagnose(network: try p.id(), cli: cli)
         case "properties": return try await cli.run(["system", "property", "list", "--format", "json"])
@@ -116,7 +116,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             return ""
         case "servicesStart":
             defer { model?.refreshAfterServiceChange() }
-            return try await cli.run(["system", "start", "--disable-kernel-install"], timeout: 120)
+            return try await cli.startServices()
         case "servicesStop":
             try await confirm("Stop container services?", "Every running container, machine, and Kubernetes node stops.", action: "Stop")
             defer { model?.refreshAfterServiceChange() }
@@ -125,9 +125,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             try await confirm("Restart container services?", "Every running container, machine, and Kubernetes node stops; services start again.", action: "Restart")
             defer { model?.refreshAfterServiceChange() }
             _ = try await cli.run(["system", "stop"], timeout: 120)
-            return try await cli.run(["system", "start", "--disable-kernel-install"], timeout: 120)
+            return try await cli.startServices()
         case "engineUpgrade":
-            guard let brew = ContainerCLI.homebrew else { throw CLIError(message: "Homebrew not found. Upgrade with the signed installer from github.com/apple/container/releases.") }
+            guard cli.source == .homebrew, let brew = ContainerCLI.homebrew else {
+                throw CLIError(message: cli.isBundled ? "The bundled engine updates with ContainerScope. Download the latest ContainerScope release." : "Upgrade with the signed installer from github.com/apple/container/releases.")
+            }
             try await confirm("Upgrade the container engine?", "Services stop, Homebrew upgrades the `container` formula, then services start again. Running containers stop.", action: "Upgrade")
             defer { model?.refreshAfterServiceChange() }
             _ = try await cli.run(["system", "stop"], timeout: 120)
@@ -136,10 +138,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 _ = try await ContainerCLI.run(brew, ["update"], timeout: 600)
                 output = try await ContainerCLI.run(brew, ["upgrade", "container"], timeout: 1800)
             } catch {
-                _ = try? await cli.run(["system", "start", "--disable-kernel-install"], timeout: 120)
+                _ = try? await cli.startServices()
                 throw error
             }
-            _ = try await cli.run(["system", "start", "--disable-kernel-install"], timeout: 120)
+            _ = try await cli.startServices()
             return output
         case "kernelChoose":
             return try await chooseFile(title: "Choose a Linux kernel (vmlinux / Image)")
@@ -154,6 +156,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         // MARK: Machines
         case "machines": return try await cli.run(["machine", "list", "--format", "json"])
         case "machineInspect": return try await cli.run(["machine", "inspect", try p.id()])
+        case "machinePresets": return MachineImages.presetsJSON()
         case "machineCreate":
             var args = ["machine", "create", "--progress", "plain", "--name", try p.id()]
             if let cpus = p.int("cpus") { args += ["--cpus", String(min(max(cpus, 1), 64))] }
@@ -164,7 +167,21 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             if p.bool("virtualization") { args.append("--virtualization") }
             if p.string("kernel")?.isEmpty == false { args += ["--kernel", try p.existingFile("kernel")] }
-            return try await cli.run(args + [try p.reference()], timeout: 1800)
+            // A preset is first layered into a local machine image (init + sudo); a custom image is used as given.
+            let image = if let preset = p.string("preset") {
+                try await MachineImages.prepare(try MachineImages.preset(preset), cli: cli)
+            } else {
+                try p.reference()
+            }
+            let id = try p.id()
+            let output = try await cli.run(args + [image], timeout: 1800)
+            // container 1.5.0 rejects the first `machine run` right after create ("Operation not supported
+            // by device"); wait until the machine accepts commands so the first Shell/Probe works.
+            for attempt in 1...15 {
+                if (try? await cli.run(["machine", "run", "--name", id, "true"], timeout: 60)) != nil { break }
+                if attempt < 15 { try await Task.sleep(for: .seconds(2)) }
+            }
+            return output
         case "machineBoot": return try await cli.run(["machine", "run", "--name", try p.id(), "true"], timeout: 300)
         case "machineStop": return try await cli.run(["machine", "stop", try p.id()], timeout: 120)
         case "machineDelete":
@@ -227,20 +244,35 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             guard ["nodes", "pods", "services", "deployments"].contains(kind) else { throw CLIError(message: "Unsupported resource") }
             return try await cli.run(["exec", "-e", "KUBECONFIG=/etc/kubernetes/admin.conf", "--", try p.id(), "kubectl", "get", kind, "-A", "-o", "json"], timeout: 30)
 
+        // MARK: Docker Compose (via socktainer)
+        case "composeStatus": return await Compose.statusJSON()
+        case "composeList": return try await Compose.run(["ls", "--all", "--format", "json"])
+        case "composePs": return try await Compose.run(["-p", try p.id(), "ps", "--all", "--format", "json"])
+        case "composeUp":
+            let path = try await chooseFile(title: "Choose a Compose file (compose.yaml / docker-compose.yml)")
+            guard [".yaml", ".yml"].contains(where: path.lowercased().hasSuffix) else { throw CLIError(message: "Choose a .yaml or .yml Compose file") }
+            let directory = (path as NSString).deletingLastPathComponent
+            return try await Compose.run(["-f", path, "--project-directory", directory, "up", "-d"], timeout: 1800)
+        case "composeAction":
+            let project = try p.id()
+            let action = p.string("action") ?? ""
+            guard ["start", "stop", "restart", "down"].contains(action) else { throw CLIError(message: "Unsupported Compose action") }
+            if action == "down" {
+                try await confirm("Take down “\(project)”?", "Its containers and networks are removed. Named volumes are kept.", action: "Down")
+            }
+            return try await Compose.run(["-p", project, action], timeout: 600)
+
         // MARK: Windows on ARM (QEMU + HVF)
         case "winStatus": return try WindowsVMs.shared.statusJSON()
-        case "winInstallTools":
-            guard let brew = ContainerCLI.homebrew else { throw CLIError(message: "Homebrew not found. Install it from brew.sh, then retry.") }
-            try await confirm("Install QEMU and swtpm?", "Homebrew installs qemu (with Hypervisor.framework acceleration and UEFI firmware) and swtpm (TPM 2.0 for Windows 11).", action: "Install")
-            return try await ContainerCLI.run(brew, ["install", "qemu", "swtpm"], timeout: 1800)
         case "isoDownload":
             guard let text = p.string("url")?.trimmingCharacters(in: .whitespacesAndNewlines), let url = URL(string: text) else {
                 throw CLIError(message: "Paste a download link")
             }
             return try WindowsVMs.shared.download(url)
-        case "isoDownloadVirtio": return try WindowsVMs.shared.download(WindowsVMs.virtioURL)
-        case "winSecureBootFirmware":
-            return try await WindowsVMs.shared.installSecureBootFirmware(cli: cli)
+        case "isoDownloadVirtio":
+            let channel = p.string("channel") ?? "stable"
+            guard let url = WindowsVMs.virtioChannels[channel] else { throw CLIError(message: "Unknown VirtIO channel \(channel)") }
+            return try WindowsVMs.shared.download(url, as: "virtio-win-\(channel).iso")
         case "winCatalog": return try await MicrosoftISO.shared.catalog()
         case "isoDownloadWindows":
             guard let edition = p.string("edition"), edition.allSatisfy(\.isNumber),
@@ -266,7 +298,8 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             let cpus = min(max(p.int("cpus") ?? 4, 2), 64)
             let memory = min(max(p.int("memoryGB") ?? 8, 4), 256)
             let disk = min(max(p.int("diskGB") ?? 64, 64), 2048)
-            return try await WindowsVMs.shared.create(id: try p.id(), cpus: cpus, memoryGB: memory, diskGB: disk)
+            let network = try WindowsVMs.Network.parse(mode: p.string("network"), forwards: p.stringArray("forwards"))
+            return try await WindowsVMs.shared.create(id: try p.id(), cpus: cpus, memoryGB: memory, diskGB: disk, network: network)
         case "winStart":
             let isos = try (p.stringArray("isos") ?? []).prefix(4).map { try Params.isoPath($0) }
             return try await WindowsVMs.shared.start(id: try p.id(), isos: Array(isos))
@@ -280,6 +313,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             return ""
         case "winSetDisplay":
             try WindowsVMs.shared.setDisplay(id: try p.id(), display: p.string("display") ?? "")
+            return ""
+        case "winSetNetwork":
+            let network = try WindowsVMs.Network.parse(mode: p.string("network"), forwards: p.stringArray("forwards"))
+            try WindowsVMs.shared.setNetwork(id: try p.id(), network: network)
             return ""
         case "winDelete":
             let id = try p.id()

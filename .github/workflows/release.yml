@@ -9,10 +9,14 @@ permissions:
   contents: write
 
 jobs:
+  firmware:
+    uses: ./.github/workflows/firmware.yml
+
   release:
+    needs: firmware
     runs-on: macos-26
     env:
-      # Repository variable: the Developer ID Application identity's SHA-1 (see README › Releases).
+      # Repository variable: the Developer ID Application identity's SHA-1 (see docs/developer/releasing.md).
       SIGN_IDENTITY: ${{ vars.SIGN_IDENTITY }}
     steps:
       - uses: actions/checkout@v7
@@ -22,6 +26,17 @@ jobs:
         run: |
           test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)" || {
             echo "::error::Tag $GITHUB_REF_NAME does not match VERSION $(cat VERSION)"; exit 1; }
+      - uses: actions/download-artifact@v8
+        with:
+          name: firmware
+          path: build/deps/firmware
+      - name: Download cache (engine installer, Kata kernel archive)
+        uses: actions/cache@v6
+        with:
+          path: ~/Library/Caches/ContainerScope-build
+          key: deps-${{ hashFiles('Scripts/deps.env') }}
+      - name: Stage bundled components
+        run: brew install qemu swtpm zstd && Scripts/fetch-deps.sh
       - name: Import signing identity
         env:
           P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
@@ -29,7 +44,7 @@ jobs:
           NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
         run: |
           [ -n "$SIGN_IDENTITY" ] && [ -n "$P12_BASE64" ] && [ -n "$NOTARY_KEY_P8" ] || {
-            echo "::error::Set the SIGN_IDENTITY variable and the signing secrets (README › Releases)"; exit 1; }
+            echo "::error::Set the SIGN_IDENTITY variable and the signing secrets (docs/developer/releasing.md)"; exit 1; }
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
@@ -54,12 +69,15 @@ jobs:
           DMG="$(Scripts/build-dmg.sh)"
           (cd build && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
           echo "path=$DMG" >> "$GITHUB_OUTPUT"
+      - name: Collect third-party sources
+        id: sources
+        run: echo "path=$(Scripts/collect-sources.sh "build/ContainerScope-${GITHUB_REF_NAME#v}-third-party-sources.tar")" >> "$GITHUB_OUTPUT"
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            "${{ steps.dmg.outputs.path }}" "${{ steps.dmg.outputs.path }}.sha256" \
+            "${{ steps.dmg.outputs.path }}" "${{ steps.dmg.outputs.path }}.sha256" "${{ steps.sources.outputs.path }}" \
             --title "ContainerScope ${GITHUB_REF_NAME#v}" \
             --generate-notes
       - name: Remove signing material

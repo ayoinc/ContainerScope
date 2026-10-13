@@ -6,7 +6,8 @@
 # Runs inside an ubuntu:24.04 container on Apple Silicon (native arm64 build):
 #   container run --rm -c 8 -m 8G -v "$PWD/Firmware:/in:ro" -v "$OUT:/out" \
 #     docker.io/library/ubuntu:24.04 sh /in/build-aavmf.sh
-# Writes /out/AAVMF_CODE.ms.fd and /out/AAVMF_VARS.ms.fd (64 MiB pflash images).
+# Writes /out/AAVMF_CODE.ms.fd and /out/AAVMF_VARS.ms.fd (64 MiB pflash images), plus EDK2's
+# License.txt and Ubuntu's debian/copyright. Prints the package version on stdout.
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 
@@ -27,4 +28,6 @@ cp debian/aavmf-install/AAVMF_CODE.secboot.fd /out/.AAVMF_CODE.ms.fd.new
 cp debian/aavmf-install/AAVMF_VARS.ms.fd /out/.AAVMF_VARS.ms.fd.new
 mv /out/.AAVMF_CODE.ms.fd.new /out/AAVMF_CODE.ms.fd
 mv /out/.AAVMF_VARS.ms.fd.new /out/AAVMF_VARS.ms.fd
+cp License.txt /out/License.txt
+cp debian/copyright /out/copyright
 dpkg-parsechangelog -S Version | sed 's/$/ + ContainerScope logo/'

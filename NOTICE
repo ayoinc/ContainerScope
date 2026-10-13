@@ -1,0 +1,10 @@
+ContainerScope
+Copyright 2026 Ayodele Ajayi
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+ContainerScope.app bundles third-party components (Apple's container engine,
+a Linux kernel, QEMU, swtpm, UEFI firmware and supporting libraries). Each of
+them keeps its own licence; they are not relicensed under the Apache License.
+See THIRD_PARTY_NOTICES.md for the list, their licences and where to get their
+source code.

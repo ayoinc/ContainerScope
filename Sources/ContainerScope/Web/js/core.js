@@ -249,3 +249,40 @@ CS.ui = {
     return CS.h("table", { class: `table ${className}` }, colgroup, head, body);
   },
 };
+
+/* What ContainerScope needs, from hostInfo: what ships inside the app, what the user provides.
+   state: "included" (bundled), "ok" (present on this Mac), "action" (user step), "optional", "missing" (blocks use). */
+CS.requirements = function requirements(host) {
+  const b = host.bundled || {};
+  const engine = host.engine || {};
+  const major = parseInt(String(host.macOS || "0").split(".")[0], 10);
+  const fromImage = engine.source === "bundled" && /\/AppTranslocation\/|^\/Volumes\//.test(host.appPath || "");
+  const engineSource = { homebrew: "Homebrew", installer: "Apple's installer", custom: "CONTAINER_BIN", path: "your PATH" }[engine.source];
+  return [
+    { name: "Mac with Apple silicon, macOS 26 or later", state: host.hypervisor && major >= 26 ? "ok" : "missing",
+      detail: `${host.chip || "Unknown chip"} · macOS ${host.macOS || "?"}` },
+    fromImage
+      ? { name: "Container engine", state: "missing", detail: "Move ContainerScope to Applications and open it from there. The bundled engine runs from inside the app, so it can't run from the disk image." }
+      : engine.source === "bundled"
+        ? { name: "Container engine", state: "included", detail: `Apple container ${b.container || ""}, bundled. Updates arrive with ContainerScope.` }
+        : engine.source === "missing"
+          ? { name: "Container engine", state: "missing", detail: "Not found in the app. Download ContainerScope again." }
+          : { name: "Container engine", state: "ok", detail: `Using the engine from ${engineSource} (${engine.path}). The bundled engine ${b.container || ""} stays unused while it's installed.` },
+    engine.source === "bundled"
+      ? { name: "Linux kernel for containers", state: "included", detail: `${b.kernel || ""}, installed on first start` }
+      : { name: "Linux kernel for containers", state: "ok", detail: "Managed by your installed engine (see Guest Kernel below)" },
+    { name: "QEMU and swtpm (Windows on ARM)", state: b.qemu ? "included" : "missing", detail: b.qemu ? `QEMU ${b.qemu} · swtpm ${b.swtpm}` : "Missing from this copy of the app" },
+    { name: "Secure Boot UEFI firmware", state: b.firmware ? "included" : "missing", detail: b.firmware || "Missing from this copy of the app" },
+    host.rosetta === "installed"
+      ? { name: "Rosetta 2", state: "ok", detail: "Installed" }
+      : { name: "Rosetta 2", state: host.rosetta === "notSupported" ? "missing" : "action", install: host.rosetta === "notInstalled",
+          detail: "Part of macOS, installed separately. Needed for Kubernetes and x86-64 images." },
+    { name: "Windows 11 ARM64 install media", state: "action", route: "windows", detail: "Licensed by Microsoft, so not included. Download it in Windows on ARM." },
+    { name: "VirtIO drivers for Windows", state: "action", route: "windows", detail: "Network and display drivers (about 880 MB). Download them in Windows on ARM." },
+    { name: "Container images", state: "action", detail: "Pulled from registries such as Docker Hub when you use them. Needs internet access." },
+    { name: "Docker API for Docker CLI, Compose and Vagrant", state: host.dockerSocket ? "ok" : "optional",
+      detail: host.dockerSocket ? `socktainer at ${host.dockerSocket}` : "Optional: brew install socktainer" },
+  ];
+};
+
+CS.requirementLabel = { included: "Included", ok: "Ready", action: "You provide", optional: "Optional", missing: "Needs attention" };
