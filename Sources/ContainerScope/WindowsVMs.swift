@@ -43,14 +43,6 @@ final class WindowsVMs {
             .map(URL.init(fileURLWithPath:))
     }
 
-    private static func firmware(_ name: String) -> URL? {
-        guard let qemu = tool("qemu-system-aarch64") else { return nil }
-        // <prefix>/bin/qemu-system-aarch64 → <prefix>/share/qemu/<name>
-        let url = qemu.resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("share/qemu/\(name)")
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
-    }
-
     // MARK: Status
 
     func statusJSON() throws -> String {
@@ -71,7 +63,6 @@ final class WindowsVMs {
         let result: [String: Any] = [
             "qemu": Self.tool("qemu-system-aarch64")?.path ?? "",
             "swtpm": Self.tool("swtpm")?.path ?? "",
-            "firmware": Self.firmware("edk2-aarch64-code.fd")?.path ?? "",
             "secureBoot": hasSecureBootFirmware,
             "homebrew": ContainerCLI.homebrew != nil,
             "mediaDir": mediaDir.path,

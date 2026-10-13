@@ -146,9 +146,9 @@ CS.views.windows = function windows(root) {
   let fetchingFirmware = false;
 
   function renderTools() {
-    const missing = [!state.qemu && "QEMU", !state.swtpm && "swtpm", state.qemu && !state.firmware && "UEFI firmware"].filter(Boolean);
+    const missing = [!state.qemu && "QEMU", !state.swtpm && "swtpm"].filter(Boolean);
     toolsSlot.replaceChildren(missing.length
-      ? h("div", { class: "callout warning row wrap" }, `${missing.join(" and ")} not found. Windows VMs need QEMU (Hypervisor.framework + EDK2 UEFI) and swtpm (TPM 2.0).`,
+      ? h("div", { class: "callout warning row wrap" }, `${missing.join(" and ")} not found. Windows VMs need QEMU (Hypervisor.framework) and swtpm (TPM 2.0).`,
         h("span", { class: "spacer" }),
         state.homebrew ? ui.button("Install QEMU", { kind: "prominent", onClick: async (e) => { if ((await CS.act(e.currentTarget, "winInstallTools", {}, "QEMU and swtpm installed")).ok) refresh(); } })
           : h("span", {}, "Install Homebrew, then run ", h("code", {}, "brew install qemu swtpm")))

@@ -62,11 +62,12 @@ This bumps `VERSION`, commits, tags `v0.2.0` and pushes. The tag starts the [Rel
 4. Notarizes the DMG and staples the ticket.
 5. Publishes a GitHub Release with the DMG, its SHA-256 and generated release notes.
 
-The Release workflow uses these repository secrets:
+The Release workflow needs these repository settings:
 
-| Secret | Contents |
-|---|---|
-| `DEVELOPER_ID_P12_BASE64` / `DEVELOPER_ID_P12_PASSWORD` | Developer ID Application certificate and private key (`.p12`, base64) |
-| `NOTARY_KEY_P8` / `NOTARY_KEY_ID` / `NOTARY_ISSUER` | App Store Connect API key with Developer access, used by `notarytool` |
+| Setting | Kind | Contents |
+|---|---|---|
+| `SIGN_IDENTITY` | Variable | SHA-1 of the Developer ID Application identity (`security find-identity -v -p codesigning`) |
+| `DEVELOPER_ID_P12_BASE64` / `DEVELOPER_ID_P12_PASSWORD` | Secret | Developer ID Application certificate and private key (`.p12`, base64) |
+| `NOTARY_KEY_P8` / `NOTARY_KEY_ID` / `NOTARY_ISSUER` | Secret | App Store Connect API key with Developer access, used by `notarytool` |
 
 Every push to `main` and every pull request runs [CI](.github/workflows/ci.yml), which uploads the DMG as a build artifact.
