@@ -72,6 +72,8 @@ After the first sign-in:
    Get-ChildItem E:\ -Recurse -Filter *.inf | Where-Object FullName -match '\\w11\\ARM64\\' | ForEach-Object { pnputil /add-driver $_.FullName /install }
    ```
    This installs every ARM64 driver on the disc: network, display, balloon and the rest. Don't run `virtio-win-guest-tools.exe` or the `.msi` installers on that disc: they're x64-only and fail on ARM with `0x80070643 - Fatal error during installation`.
+
+   Copy and paste between the Mac and the VM doesn't work: the clipboard agent for Windows is x64-only. Instead, click into the PowerShell window and press the keyboard button next to the command in ContainerScope's **VirtIO Drivers** card; the app types it for you. The keyboard button on a running VM's row types whatever is on the Mac clipboard. Typing assumes a US keyboard layout in Windows.
 3. The network comes up. Run Windows Update.
 4. Shut down Windows.
 5. Switch the VM's display to **VirtIO GPU**. You can only change the display while the VM is shut down.

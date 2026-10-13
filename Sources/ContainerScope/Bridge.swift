@@ -314,6 +314,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         case "winSetDisplay":
             try WindowsVMs.shared.setDisplay(id: try p.id(), display: p.string("display") ?? "")
             return ""
+        case "winType":
+            // No text: type the Mac clipboard.
+            let text = p.string("text") ?? NSPasteboard.general.string(forType: .string) ?? ""
+            try await WindowsVMs.shared.type(id: try p.id(), text: text)
+            return ""
         case "winSetNetwork":
             let network = try WindowsVMs.Network.parse(mode: p.string("network"), forwards: p.stringArray("forwards"))
             try WindowsVMs.shared.setNetwork(id: try p.id(), network: network)

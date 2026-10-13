@@ -32,7 +32,18 @@ CS.views.windows = function windows(root) {
   const open = (url) => () => CS.call("openURL", { url });
   const copyBlock = (text) => h("div", { class: "copy-block" },
     h("pre", { class: "console" }, text),
+    ui.iconButton("keyboard", "Type into the running VM", (e) => typeInto(e.currentTarget, text), ""),
     ui.iconButton("copy", "Copy", () => { navigator.clipboard.writeText(text); CS.toast("Copied"); }, ""));
+  /* Types text into the one running VM as keystrokes; Windows on ARM has no clipboard agent. */
+  async function typeInto(button, text) {
+    const running = (state?.vms || []).filter((v) => v.running);
+    if (running.length !== 1) {
+      CS.toast(running.length ? "Several VMs are running" : "No VM is running",
+        running.length ? "Use Type Mac Clipboard on the VM you want instead." : "Start the VM, click where the text should go, then try again.", "error");
+      return;
+    }
+    await CS.act(button, "winType", { id: running[0].id, text }, `Typed into ${running[0].id}`);
+  }
   const urlInput = h("input", { type: "url", class: "mono", placeholder: "https://software.download.prss.microsoft.com/…_arm64_….iso", "aria-label": "Windows ISO download link" });
   const editionSelect = h("select", { "aria-label": "Windows version", disabled: true }, h("option", {}, "Loading from Microsoft…"));
   const languageSelect = h("select", { "aria-label": "Windows language", disabled: true }, h("option", {}, "—"));
@@ -374,6 +385,7 @@ CS.views.windows = function windows(root) {
             ? ui.iconButton("power", `Shut down ${v.id}`, (e) => vmAction(e.currentTarget, "winShutdown", v.id, `Sent shutdown to ${v.id}`))
             : ui.iconButton("play", `Start ${v.id} with checked media`, (e) => vmAction(e.currentTarget, "winStart", v.id, `Started ${v.id}`)),
           v.running ? ui.iconButton("stop", `Power off ${v.id}`, (e) => vmAction(e.currentTarget, "winPowerOff", v.id, `Powered off ${v.id}`)) : null,
+          v.running ? ui.iconButton("keyboard", `Type Mac Clipboard into ${v.id} (US keyboard layout)`, (e) => vmAction(e.currentTarget, "winType", v.id, `Typed clipboard into ${v.id}`)) : null,
           v.running ? null : ui.iconButton("network", `Change network for ${v.id}`, () => editNetwork(v)),
           ui.iconButton("terminal", `Show QEMU log for ${v.id}`, () => showLog(v.id)),
           v.running ? null : ui.iconButton("trash", `Delete ${v.id}`, (e) => vmAction(e.currentTarget, "winDelete", v.id, `Deleted ${v.id}`))),

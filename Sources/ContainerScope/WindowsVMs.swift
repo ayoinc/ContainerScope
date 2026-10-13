@@ -509,8 +509,48 @@ final class WindowsVMs {
         return name.unicodeScalars.allSatisfy(allowed.contains)
     }
 
+    /// Types `text` into a running VM as keystrokes (HMP `sendkey`), for guests with no clipboard
+    /// agent: SPICE's Windows vdagent is x64-only. Keys are US-layout; other characters are rejected
+    /// up front so nothing is half-typed.
+    func type(id: String, text: String) async throws {
+        let vm = try vm(id)
+        guard vm.running else { throw CLIError(message: "Start \(id) before typing into it") }
+        let keys = try Self.keystrokes(text)
+        guard !keys.isEmpty else { throw CLIError(message: "Nothing to type") }
+        guard keys.count <= 4000 else { throw CLIError(message: "Text is too long to type (\(keys.count) characters; limit 4000)") }
+        let socketPath = vm.dir.appendingPathComponent("monitor.sock").path
+        // ~25 keys a second: each key is held 20 ms and released before the next press.
+        try await Task.detached { try Self.monitor(socketPath, keys.map { "sendkey \($0) 20" }, gap: 40_000) }.value
+    }
+
+    /// QEMU key names for each character on a US keyboard.
+    nonisolated static func keystrokes(_ text: String) throws -> [String] {
+        let plain: [Character: String] = [
+            " ": "spc", "\n": "ret", "\r\n": "ret", "\r": "ret", "\t": "tab",
+            "-": "minus", "=": "equal", "[": "bracket_left", "]": "bracket_right", "\\": "backslash",
+            ";": "semicolon", "'": "apostrophe", "`": "grave_accent", ",": "comma", ".": "dot", "/": "slash",
+        ]
+        let shifted: [Character: String] = [
+            "_": "minus", "+": "equal", "{": "bracket_left", "}": "bracket_right", "|": "backslash",
+            ":": "semicolon", "\"": "apostrophe", "~": "grave_accent", "<": "comma", ">": "dot", "?": "slash",
+            "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
+        ]
+        return try text.map { ch in
+            if let key = plain[ch] { return key }
+            if let key = shifted[ch] { return "shift-\(key)" }
+            if ch.isASCII, ch.isLetter { return ch.isUppercase ? "shift-\(ch.lowercased())" : String(ch) }
+            if ch.isASCII, ch.isNumber { return String(ch) }
+            throw CLIError(message: "Can't type “\(ch)”: only characters on a US keyboard are supported")
+        }
+    }
+
     /// Sends one human-monitor command over the VM's UNIX socket.
     private static func monitor(_ socketPath: String, _ command: String) throws {
+        try monitor(socketPath, [command], gap: 0)
+    }
+
+    /// Sends human-monitor commands over one connection, `gap` microseconds apart.
+    nonisolated private static func monitor(_ socketPath: String, _ commands: [String], gap: useconds_t) throws {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw CLIError(message: "Could not open monitor socket") }
         defer { close(fd) }
@@ -526,8 +566,11 @@ final class WindowsVMs {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
         guard connected == 0 else { throw CLIError(message: "The VM monitor is not reachable") }
-        let line = Array("\(command)\n".utf8)
-        guard write(fd, line, line.count) == line.count else { throw CLIError(message: "Could not send \(command)") }
+        for command in commands {
+            let line = Array("\(command)\n".utf8)
+            guard write(fd, line, line.count) == line.count else { throw CLIError(message: "Could not send \(command)") }
+            if gap > 0 { usleep(gap) }
+        }
         usleep(200_000)   // let QEMU read before the socket closes
     }
 }
