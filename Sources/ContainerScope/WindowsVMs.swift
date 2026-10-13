@@ -161,6 +161,9 @@ final class WindowsVMs {
         let cpus: Int
         let memoryGB: Int
         let diskGB: Int
+        /// "ramfb" (fixed-size framebuffer Windows drives with no extra driver) or "virtio-gpu"
+        /// (resizable; needs viogpudo from virtio-win installed in Windows first).
+        var display = "ramfb"
         var isos: [String] = []
         var pid: Int32?
 
@@ -170,7 +173,7 @@ final class WindowsVMs {
             let disk = dir.appendingPathComponent("disk.qcow2")
             let used = (try? disk.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0
             return ["id": id, "cpus": cpus, "memoryGB": memoryGB, "diskGB": diskGB, "diskUsed": used,
-                    "running": running, "isos": isos, "dir": dir.path]
+                    "display": display, "running": running, "isos": isos, "dir": dir.path]
         }
     }
 
@@ -185,6 +188,7 @@ final class WindowsVMs {
               let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         var vm = VM(id: dir.lastPathComponent, dir: dir, cpus: config["cpus"] as? Int ?? 4,
                     memoryGB: config["memoryGB"] as? Int ?? 8, diskGB: config["diskGB"] as? Int ?? 64)
+        if config["display"] as? String == "virtio-gpu" { vm.display = "virtio-gpu" }
         if let text = try? String(contentsOf: dir.appendingPathComponent("qemu.pid"), encoding: .utf8),
            let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), kill(pid, 0) == 0 {
             vm.pid = pid
@@ -257,8 +261,10 @@ final class WindowsVMs {
             "-chardev", "socket,id=chrtpm,path=\(path("tpm/swtpm.sock"))",
             // ppi=off: the 1 KiB Physical Presence RAM region is smaller than the 16 KiB host page, which HVF rejects.
             "-tpmdev", "emulator,id=tpm0,chardev=chrtpm", "-device", "tpm-tis-device,tpmdev=tpm0,ppi=off",
-            // ramfb is the display Windows on ARM drives without extra drivers; USB HID keeps input working pre-driver.
-            "-device", "ramfb",
+            // ramfb: linear framebuffer Windows' Basic Display driver can use with no VirtIO driver (setup).
+            // virtio-gpu: resizable display for after viogpudo is installed; EDK2's VirtIO GOP is Blt-only,
+            // so Windows shows nothing on it until that driver loads.
+            "-device", vm.display == "virtio-gpu" ? "virtio-gpu-pci" : "ramfb",
             "-device", "qemu-xhci,id=xhci", "-device", "usb-kbd", "-device", "usb-tablet",
             // NVMe uses Windows' inbox driver, so setup sees the disk without loading VirtIO storage drivers.
             "-drive", "if=none,id=disk0,format=qcow2,discard=unmap,file=\(path("disk.qcow2"))",
@@ -268,7 +274,8 @@ final class WindowsVMs {
             "-rtc", "base=localtime",
             "-monitor", "unix:\(path("monitor.sock")),server=on,wait=off",
             "-pidfile", path("qemu.pid"),
-            "-display", "cocoa",
+            // zoom-to-fit: the window can be resized at any time; the guest image scales to it.
+            "-display", "cocoa,zoom-to-fit=on",
         ]
         for (index, iso) in isos.enumerated() {
             args += ["-drive", "if=none,id=cd\(index),media=cdrom,readonly=on,file=\(iso)",
@@ -298,6 +305,16 @@ final class WindowsVMs {
             if fm.fileExists(atPath: path("qemu.pid")) { break }
         }
         return "\(process.processIdentifier)"
+    }
+
+    func setDisplay(id: String, display: String) throws {
+        guard ["ramfb", "virtio-gpu"].contains(display) else { throw CLIError(message: "Unknown display \(display)") }
+        let vm = try vm(id)
+        guard !vm.running else { throw CLIError(message: "Shut down \(id) before changing its display") }
+        let file = vm.dir.appendingPathComponent("vm.json")
+        var config = (try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]) ?? [:]
+        config["display"] = display
+        try JSONSerialization.data(withJSONObject: config).write(to: file, options: .atomic)
     }
 
     /// Builds Ubuntu's Secure Boot `qemu-efi-aarch64` from source with the ContainerScope boot logo,

@@ -64,7 +64,8 @@ CS.views.windows = function windows(root) {
       h("div", { class: "group stack-tight" },
         h("p", {}, "Press any key in the VM window when it says ", h("code", {}, "Press any key to boot from CD or DVD"), "."),
         h("p", {}, "No network during setup? Press ", h("code", {}, "Shift+F10"), ", run ", h("code", {}, "OOBE\\BYPASSNRO"), ", and choose “I don't have internet”."),
-        h("p", {}, "After first login, open the VirtIO CD and run ", h("code", {}, "virtio-win-guest-tools.exe"), " for networking."),
+        h("p", {}, "After first login, install the ARM64 VirtIO drivers (network, display, balloon…). ", h("code", {}, "virtio-win-guest-tools.exe"), " is x64-only. In an administrator terminal, with the VirtIO CD as ", h("code", {}, "E:"), ", run ", h("code", {}, "pnputil /add-driver E:\\*\\w11\\ARM64\\*.inf /subdirs /install"), "."),
+        h("p", {}, "Then shut down and switch the VM's display to VirtIO GPU so the window can be resized and Windows follows its size. Basic display (ramfb) has a fixed size; the window then only scales the picture."),
         h("p", {}, "Once Windows is installed, start the VM with no media attached and use Clean Up to delete the ISOs.")))));
 
   async function refresh() {
@@ -203,15 +204,20 @@ CS.views.windows = function windows(root) {
     ], items, { rowKey: (m) => m.path }));
   }
 
+  async function setDisplay(button, id, display, label) {
+    if ((await CS.act(button, "winSetDisplay", { id, display }, `${id} will use ${label} on next start`)).ok) refresh();
+  }
+
   function renderVMs() {
     const vms = state.vms;
     vmSummary.textContent = `${vms.filter((v) => v.running).length} running · ${vms.length} total`;
     if (!vms.length) { vmSlot.replaceChildren(h("div", { class: "group" }, ui.empty("box", "No Windows VMs", "Download the Windows ISO and VirtIO drivers, then create a VM above."))); return; }
     ui.showTable(vmSlot, ui.table([
-      { title: "Name", width: "22%", render: (v) => [h("span", { class: "primary-cell" }, v.id), h("span", { class: "sub" }, ui.status(v.running ? "running" : "stopped"))] },
-      { title: "Resources", width: "18%", render: (v) => `${v.cpus} CPU · ${v.memoryGB} GB` },
-      { title: "Disk", width: "18%", render: (v) => `${fmt.bytes(v.diskUsed)} of ${v.diskGB} GB` },
-      { title: "Media", width: "20%", render: (v) => h("span", { class: "secondary truncate" }, v.running ? (v.isos.map((p) => p.split("/").pop()).join(", ") || "None") : "—") },
+      { title: "Name", width: "20%", render: (v) => [h("span", { class: "primary-cell" }, v.id), h("span", { class: "sub" }, ui.status(v.running ? "running" : "stopped"))] },
+      { title: "Resources", width: "16%", render: (v) => `${v.cpus} CPU · ${v.memoryGB} GB` },
+      { title: "Disk", width: "15%", render: (v) => `${fmt.bytes(v.diskUsed)} of ${v.diskGB} GB` },
+      { title: "Display", width: "13%", render: (v) => v.display === "virtio-gpu" ? "VirtIO GPU" : "Basic (ramfb)" },
+      { title: "Media", width: "14%", render: (v) => h("span", { class: "secondary truncate" }, v.running ? (v.isos.map((p) => p.split("/").pop()).join(", ") || "None") : "—") },
       {
         title: "", width: "22%", className: "actions",
         render: (v) => h("div", { class: "row" },
@@ -219,6 +225,9 @@ CS.views.windows = function windows(root) {
             ? ui.iconButton("power", `Shut down ${v.id}`, (e) => vmAction(e.currentTarget, "winShutdown", v.id, `Sent shutdown to ${v.id}`))
             : ui.iconButton("play", `Start ${v.id} with checked media`, (e) => vmAction(e.currentTarget, "winStart", v.id, `Started ${v.id}`)),
           v.running ? ui.iconButton("stop", `Power off ${v.id}`, (e) => vmAction(e.currentTarget, "winPowerOff", v.id, `Powered off ${v.id}`)) : null,
+          v.running ? null : v.display === "virtio-gpu"
+            ? ui.iconButton("display", `Use basic display for ${v.id}`, (e) => setDisplay(e.currentTarget, v.id, "ramfb", "Basic display (ramfb)"))
+            : ui.iconButton("display", `Use VirtIO GPU display for ${v.id}`, (e) => setDisplay(e.currentTarget, v.id, "virtio-gpu", "VirtIO GPU")),
           ui.iconButton("terminal", `Show QEMU log for ${v.id}`, () => showLog(v.id)),
           v.running ? null : ui.iconButton("trash", `Delete ${v.id}`, (e) => vmAction(e.currentTarget, "winDelete", v.id, `Deleted ${v.id}`))),
       },

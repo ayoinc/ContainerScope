@@ -278,6 +278,9 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             try await confirm("Power off \(id)?", "Like pulling the plug: unsaved work in Windows is lost. Use Shut Down for a clean stop.", action: "Power Off")
             try WindowsVMs.shared.stop(id: id, force: true)
             return ""
+        case "winSetDisplay":
+            try WindowsVMs.shared.setDisplay(id: try p.id(), display: p.string("display") ?? "")
+            return ""
         case "winDelete":
             let id = try p.id()
             try await confirm("Delete \(id)?", "Its virtual disk, UEFI variables and TPM state are removed permanently.", action: "Delete")

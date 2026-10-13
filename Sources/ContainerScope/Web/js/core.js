@@ -112,6 +112,7 @@ CS.icon = function icon(name) {
     power: "M8 1.5v6M4.4 3.6a5.5 5.5 0 1 0 7.2 0",
     warning: "M8 2 14.5 13.5h-13zM8 6.5v3.5M8 12h.01",
     sweep: "M10 2 6.5 8.5M3 9.5h7l1.5 5h-10z",
+    display: "M1.5 2.5h13v8.5h-13zM5.5 14h5M8 11v3",
   };
   const fill = name === "play" || name === "stop";
   return CS.h("svg", { viewBox: "0 0 16 16", "aria-hidden": "true", fill: fill ? "currentColor" : "none", stroke: fill ? "none" : "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round" },

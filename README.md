@@ -20,7 +20,7 @@ Requires macOS 26 on Apple Silicon with Apple `container` installed (`brew insta
 | Machines | Linux machines, including nested virtualization |
 | Kubernetes | Clusters running on the engine |
 | Windows | Windows 11 on ARM VMs: QEMU + HVF, UEFI Secure Boot, swtpm TPM 2.0, NVMe disk, VirtIO network |
-| Engine | Engine status, start/stop/restart, upgrades, kernel |
+| Windows | Windows 11 on ARM VMs: QEMU + HVF, UEFI Secure Boot, swtpm TPM 2.0, NVMe disk, VirtIO network and display |
 
 ### Windows on ARM
 
@@ -31,6 +31,7 @@ Requires macOS 26 on Apple Silicon with Apple `container` installed (`brew insta
     docker.io/library/ubuntu:24.04 sh /in/build-aavmf.sh
   ```
 - **Tools:** QEMU and swtpm come from Homebrew. **Install QEMU** in the app runs `brew install qemu swtpm`.
+- **Display:** VMs start with `ramfb`, a fixed-size framebuffer Windows can use without extra drivers, so Setup works. After installing the ARM64 VirtIO drivers (`pnputil /add-driver E:\*\w11\ARM64\*.inf /subdirs /install`; `virtio-win-guest-tools.exe` is x64-only), switch the VM to **VirtIO GPU** (`viogpudo`) for a resizable display.
 
 ## Build
 
