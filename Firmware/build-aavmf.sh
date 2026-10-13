@@ -30,4 +30,6 @@ mv /out/.AAVMF_CODE.ms.fd.new /out/AAVMF_CODE.ms.fd
 mv /out/.AAVMF_VARS.ms.fd.new /out/AAVMF_VARS.ms.fd
 cp License.txt /out/License.txt
 cp debian/copyright /out/copyright
+# Docker runs this as root; keep the results readable by the unprivileged user collecting them.
+chmod 0644 /out/AAVMF_CODE.ms.fd /out/AAVMF_VARS.ms.fd /out/License.txt /out/copyright
 dpkg-parsechangelog -S Version | sed 's/$/ + ContainerScope logo/'
