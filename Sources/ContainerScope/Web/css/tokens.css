@@ -1,0 +1,165 @@
+/*
+  ContainerScope design tokens — the content layer of a macOS 26 window.
+  Per Apple HIG (Materials, Color): Liquid Glass belongs to the native sidebar/toolbar only;
+  the content layer uses semantic, vibrant system colors so it tracks Light/Dark Mode,
+  Increase Contrast, and the user's accent color automatically.
+
+  Each semantic token has a portable `light-dark()` fallback, then is upgraded to the
+  WebKit system color keyword that maps 1:1 to the matching NSColor.
+*/
+:root {
+  color-scheme: light dark;
+
+  /* Text — NSColor.labelColor family */
+  --label: light-dark(rgb(0 0 0 / 0.85), rgb(255 255 255 / 0.85));
+  --label-secondary: light-dark(rgb(0 0 0 / 0.5), rgb(255 255 255 / 0.55));
+  --label-tertiary: light-dark(rgb(0 0 0 / 0.26), rgb(255 255 255 / 0.25));
+  --label-quaternary: light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.1));
+  --label-on-accent: #fff;
+
+  /* Accent — NSColor.controlAccentColor (follows System Settings › Appearance) */
+  --accent: light-dark(#007aff, #0a84ff);
+
+  /* Structure */
+  --separator: light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.1));
+  --fill: color-mix(in srgb, var(--label) 5%, transparent);          /* group boxes */
+  --fill-secondary: color-mix(in srgb, var(--label) 8%, transparent); /* hover, wells */
+  --fill-tertiary: color-mix(in srgb, var(--label) 12%, transparent); /* pressed, tracks */
+  --control-bg: light-dark(#fff, rgb(255 255 255 / 0.1));
+  --text-bg: light-dark(#fff, #1e1e1e);
+  --selection: color-mix(in srgb, var(--accent) 22%, transparent);
+
+  /* System colors — status meaning is always paired with a text label */
+  --red: light-dark(#ff3b30, #ff453a);
+  --orange: light-dark(#ff9500, #ff9f0a);
+  --yellow: light-dark(#ffcc00, #ffd60a);
+  --green: light-dark(#28cd41, #32d74b);
+  --teal: light-dark(#59adc4, #6ac4dc);
+  --blue: light-dark(#007aff, #0a84ff);
+  --indigo: light-dark(#5856d6, #5e5ce6);
+  --purple: light-dark(#af52de, #bf5af2);
+  --pink: light-dark(#ff2d55, #ff375f);
+  --gray: light-dark(#8e8e93, #98989d);
+
+  /* Chart series — one color per metric, reused everywhere that metric appears (HIG Charts: continuity) */
+  --series-cpu: var(--accent);
+  --series-memory: var(--purple);
+  --series-rx: var(--green);
+  --series-tx: var(--orange);
+  --series-read: var(--teal);
+  --series-write: var(--pink);
+  --series-containers: var(--blue);
+  --series-images: var(--indigo);
+  --series-volumes: var(--orange);
+
+  /* Typography — macOS text styles (HIG Typography › macOS built-in text styles) */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --text-large-title: 26px;
+  --text-title1: 22px;
+  --text-title2: 17px;
+  --text-title3: 15px;
+  --text-headline: 13px;  /* bold */
+  --text-body: 13px;
+  --text-callout: 12px;
+  --text-subheadline: 11px;
+  --text-footnote: 10px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Spacing — 4 pt grid; 20 pt content margins match AppKit window insets */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --content-margin: var(--space-5);
+
+  /* Shape — concentric radii: inner = outer − padding */
+  --radius-group: 12px;
+  --radius-control: 999px;
+  --radius-field: 7px;
+  --radius-inner: 6px;
+  --control-height: 24px;
+  --control-height-large: 28px;
+  --row-height: 28px;
+
+  /* Elevation — content layer is flat; only popovers/menus lift */
+  --shadow-popover: 0 0 0 0.5px var(--separator), 0 8px 28px rgb(0 0 0 / 0.18);
+
+  /* Motion */
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --duration-fast: 120ms;
+  --duration: 200ms;
+
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+@supports (color: -apple-system-label) {
+  :root {
+    --label: -apple-system-label;
+    --label-secondary: -apple-system-secondary-label;
+    --label-tertiary: -apple-system-tertiary-label;
+    --label-quaternary: -apple-system-quaternary-label;
+    --accent: -apple-system-control-accent;
+    --separator: -apple-system-separator;
+    --text-bg: -apple-system-text-background;
+    --red: -apple-system-red;
+    --orange: -apple-system-orange;
+    --yellow: -apple-system-yellow;
+    --green: -apple-system-green;
+    /* WebKit has no -apple-system-teal/-indigo keywords; those keep the HIG values above. */
+    --blue: -apple-system-blue;
+    --purple: -apple-system-purple;
+    --pink: -apple-system-pink;
+    --gray: -apple-system-gray;
+  }
+}
+
+/*
+  Dark Mode: translucent label-derived fills lose ~half their perceived contrast on near-black,
+  so surfaces, selected segments, and chart areas step up rather than fading into the background.
+*/
+:root {
+  --chart-area-top: 0.26;
+  --chart-area-bottom: 0.02;
+  --prominent-hover: brightness(0.92);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fill: color-mix(in srgb, var(--label) 7%, transparent);
+    --fill-secondary: color-mix(in srgb, var(--label) 11%, transparent);
+    --fill-tertiary: color-mix(in srgb, var(--label) 16%, transparent);
+    --control-bg: rgb(255 255 255 / 0.22);
+    --selection: color-mix(in srgb, var(--accent) 38%, transparent);
+    --chart-area-top: 0.42;
+    --chart-area-bottom: 0.04;
+    --prominent-hover: brightness(1.12);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --fill: color-mix(in srgb, var(--label) 10%, transparent);
+    --fill-secondary: color-mix(in srgb, var(--label) 16%, transparent);
+    --fill-tertiary: color-mix(in srgb, var(--label) 22%, transparent);
+    --separator: color-mix(in srgb, var(--label) 40%, transparent);
+    --chart-area-top: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration: 0ms;
+  }
+}
+
+/* Tint behind colored text (verdicts, callouts): stronger in dark so hues don't wash out. */
+:root { --tint-strength: 12%; }
+@media (prefers-color-scheme: dark) { :root { --tint-strength: 22%; } }
+@media (prefers-contrast: more) { :root { --tint-strength: 26%; } }

@@ -1,0 +1,37 @@
+name: Release
+
+# Cut with Scripts/release.sh X.Y.Z, which bumps VERSION and pushes tag vX.Y.Z.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag matches VERSION
+        run: |
+          test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)" || {
+            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION $(cat VERSION)"; exit 1; }
+      - name: Build app
+        run: Scripts/build-app.sh
+      - name: Build DMG
+        id: dmg
+        run: |
+          DMG="$(Scripts/build-dmg.sh)"
+          (cd build && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
+          echo "path=$DMG" >> "$GITHUB_OUTPUT"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "${{ steps.dmg.outputs.path }}" "${{ steps.dmg.outputs.path }}.sha256" \
+            --title "ContainerScope ${GITHUB_REF_NAME#v}" \
+            --generate-notes

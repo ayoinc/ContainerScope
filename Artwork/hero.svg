@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 440" width="1280" height="440">
+  <!-- README banner. Rendered to hero.png so GitHub shows it with the intended fonts. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#142040"/>
+      <stop offset="1" stop-color="#05080f"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#0a84ff" stop-opacity="0.40"/>
+      <stop offset="1" stop-color="#0a84ff" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="12" cy="12" r="1.2" fill="#ffffff" fill-opacity="0.07"/>
+    </pattern>
+    <clipPath id="card"><rect width="1280" height="440" rx="28"/></clipPath>
+  </defs>
+  <g clip-path="url(#card)">
+    <rect width="1280" height="440" fill="url(#bg)"/>
+    <rect width="1280" height="440" fill="url(#dots)"/>
+    <circle cx="250" cy="220" r="300" fill="url(#halo)"/>
+    <image x="70" y="40" width="360" height="360" xlink:href="mark.svg"/>
+    <g font-family="Helvetica Neue">
+      <text x="480" y="190" font-size="76" font-weight="700" letter-spacing="-1" fill="#f2f5ff">Container<tspan fill="#64d2ff">Scope</tspan></text>
+      <text x="482" y="246" font-size="27" fill="#aab4cf">A native macOS visualizer for Apple container,</text>
+      <text x="482" y="282" font-size="27" fill="#aab4cf">plus Windows on ARM VMs on Hypervisor.framework.</text>
+      <g font-size="17" font-weight="500" fill="#d7def0">
+        <rect x="482" y="320" width="84" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.14"/>
+        <text x="524" y="343" text-anchor="middle">Swift</text>
+        <rect x="578" y="320" width="100" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.14"/>
+        <text x="628" y="343" text-anchor="middle">WebKit</text>
+        <rect x="690" y="320" width="132" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.14"/>
+        <text x="756" y="343" text-anchor="middle">Liquid Glass</text>
+        <rect x="834" y="320" width="150" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.14"/>
+        <text x="909" y="343" text-anchor="middle">QEMU + HVF</text>
+        <rect x="996" y="320" width="176" height="34" rx="17" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.14"/>
+        <text x="1084" y="343" text-anchor="middle">Secure Boot · TPM</text>
+      </g>
+    </g>
+  </g>
+</svg>

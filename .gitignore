@@ -1,0 +1,9 @@
+.build/
+build/
+.swiftpm/
+*.xcodeproj/
+.DS_Store
+# Downloaded at runtime, never committed
+*.iso
+*.fd
+*.qcow2
