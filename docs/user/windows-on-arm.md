@@ -66,12 +66,12 @@ The first time you create or start a VM, ContainerScope expands the bundled Secu
 
 After the first sign-in:
 
-1. Open **Terminal (Admin)** (right-click Start).
+1. Open **Terminal (Admin)** (right-click Start). It opens PowerShell.
 2. Find the VirtIO CD's drive letter in File Explorer (usually `E:`), then run, with that letter:
-   ```bat
-   pnputil /add-driver E:\*\w11\ARM64\*.inf /subdirs /install
+   ```powershell
+   Get-ChildItem E:\ -Recurse -Filter *.inf | Where-Object FullName -match '\\w11\\ARM64\\' | ForEach-Object { pnputil /add-driver $_.FullName /install }
    ```
-   This installs every ARM64 driver on the disc: network, display, balloon and the rest. Don't use `virtio-win-guest-tools.exe` on that disc; it's x64-only and won't install on ARM.
+   This installs every ARM64 driver on the disc: network, display, balloon and the rest. Don't run `virtio-win-guest-tools.exe` or the `.msi` installers on that disc: they're x64-only and fail on ARM with `0x80070643 - Fatal error during installation`.
 3. The network comes up. Run Windows Update.
 4. Shut down Windows.
 5. Switch the VM's display to **VirtIO GPU**. You can only change the display while the VM is shut down.

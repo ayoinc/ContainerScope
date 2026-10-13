@@ -125,6 +125,10 @@ Windows has no network driver until the VirtIO drivers are installed. Press **Sh
 
 The VirtIO network driver isn't installed. Attach the VirtIO ISO and run the `pnputil` command from [Install the VirtIO drivers](windows-on-arm.md#4-install-the-virtio-drivers). `virtio-win-guest-tools.exe` is x64-only and won't work.
 
+### virtio-win-guest-tools fails with 0x80070643
+
+That installer is x64-only and can't install on Windows on ARM; it rolls back without changing anything. Install the drivers with the PowerShell command from [Install the VirtIO drivers](windows-on-arm.md#4-install-the-virtio-drivers) instead.
+
 ### The screen can't be resized
 
 The VM is using the basic display (`ramfb`), which has a fixed size. Install the VirtIO drivers, shut the VM down and switch its display to VirtIO GPU. If Windows shows a black screen after switching, the display driver isn't installed: switch back to the basic display, install the drivers, and try again.

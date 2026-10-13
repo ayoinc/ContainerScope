@@ -11,7 +11,7 @@ CS.views.windows = function windows(root) {
   const INSIDER_PAGE = "https://www.microsoft.com/en-us/software-download/windowsinsiderpreviewARM64";
   const INSIDER_JOIN = "https://www.microsoft.com/en-us/windowsinsider/";
   const UUP_DUMP = "https://uupdump.net/";
-  const ALL_DRIVERS = "pnputil /add-driver E:\\*\\w11\\ARM64\\*.inf /subdirs /install";
+  const ALL_DRIVERS = "Get-ChildItem E:\\ -Recurse -Filter *.inf | Where-Object FullName -match '\\\\w11\\\\ARM64\\\\' | ForEach-Object { pnputil /add-driver $_.FullName /install }";
   const DISPLAY_DRIVER = "pnputil /add-driver E:\\viogpudo\\w11\\ARM64\\viogpudo.inf /install";
   const NET_MODES = [["nat", "NAT"], ["forward", "NAT + Port Forwarding"], ["none", "Isolated"]];
   const NET_HINTS = {
@@ -138,7 +138,8 @@ CS.views.windows = function windows(root) {
         "Windows 11 on ARM has no built-in driver for this VM's network adapter or VirtIO GPU display. Fedora's virtio-win ISO has ARM64 drivers for both: ",
         h("strong", {}, "NetKVM"), " (network) and ", h("strong", {}, "viogpudo"), " (display and video), plus viostor and vioscsi (storage), Balloon (memory), vioserial, viorng, vioinput, viomem, pvpanic, viosock and viofs. ",
         "Stable is the tested release, Latest the newest build; they save as virtio-win-stable.iso and virtio-win-latest.iso."),
-      h("p", { style: { margin: 0 } }, "Install every ARM64 driver (administrator terminal in Windows, VirtIO CD as ", h("code", {}, "E:"), "):"),
+      h("p", { style: { margin: 0 } }, h("strong", {}, "Don't run virtio-win-guest-tools.exe or the .msi installers"), " on the CD: they're x64-only and fail on Windows on ARM with error 0x80070643."),
+      h("p", { style: { margin: 0 } }, "Install every ARM64 driver (PowerShell as administrator in Windows, VirtIO CD as ", h("code", {}, "E:"), "):"),
       copyBlock(ALL_DRIVERS),
       h("p", { style: { margin: 0 } }, "Only the display driver, needed before switching a VM to VirtIO GPU:"),
       copyBlock(DISPLAY_DRIVER),
