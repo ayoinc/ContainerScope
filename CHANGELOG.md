@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-13
+
 ### Added
 
 - Self-contained app bundle. ContainerScope now ships with everything it needs to run, so there's nothing to install with Homebrew and no administrator password:
@@ -51,5 +53,6 @@ First public release.
 - Engine page: status, start/stop/restart, upgrades, kernel management and Rosetta install.
 - Signed and notarized DMG published on GitHub Releases.
 
-[Unreleased]: https://github.com/ayoinc/ContainerScope/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ayoinc/ContainerScope/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ayoinc/ContainerScope/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ayoinc/ContainerScope/releases/tag/v0.1.0
