@@ -20,6 +20,7 @@ Requires macOS 26 on Apple Silicon with Apple `container` installed (`brew insta
 | Machines | Linux machines, including nested virtualization |
 | Kubernetes | Clusters running on the engine |
 | Windows | Windows 11 on ARM VMs: QEMU + HVF, UEFI Secure Boot, swtpm TPM 2.0, NVMe disk, VirtIO network and display |
+| Engine | Engine status, start/stop/restart, upgrades, kernel |
 
 ### Windows on ARM
 
