@@ -14,7 +14,7 @@ jobs:
     # Apple `container` and the Liquid Glass UI need the macOS 26 SDK (Xcode 26), Apple Silicon.
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # build number = commit count
       - name: Toolchain
@@ -23,7 +23,7 @@ jobs:
         run: Scripts/build-app.sh
       - name: Build DMG
         run: Scripts/build-dmg.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ContainerScope-dmg
           path: build/ContainerScope-*.dmg

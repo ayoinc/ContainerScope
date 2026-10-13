@@ -15,7 +15,7 @@ jobs:
       # Developer ID Application: Ayodele Ajayi (T8242XY72S), pinned by SHA-1
       SIGN_IDENTITY: E9F7D76C00EAECE40F6D30B9AEF23EF9E70E1D56
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Tag matches VERSION
