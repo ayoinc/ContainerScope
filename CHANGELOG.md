@@ -11,7 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Windows on ARM: the display switch warns that VirtIO GPU only works once viogpudo is installed in Windows (not during Setup), and that a frozen boot logo means switching back to Basic.
 - Windows on ARM: the "install every driver" command is now a PowerShell one-liner that adds only the 12 `w11\ARM64` drivers, and the app and guides warn that `virtio-win-guest-tools.exe` is x64-only (fails with 0x80070643).
-- Windows on ARM: **Type into VM** sends a command from the VirtIO Drivers card, or the Mac clipboard (keyboard button on a running VM), to Windows as keystrokes, since there is no clipboard sharing on Windows on ARM. US keyboard layout.
+- Windows on ARM: **Type into VM** sends a command from the VirtIO Drivers card, or the Mac clipboard (keyboard button on a running VM), to Windows as keystrokes, since there is no shared clipboard: QEMU's built-in clipboard bridge (`qemu-vdagent`) echoes the agent's clipboard-release message back to it, and the ARM64 Windows SPICE agent rejects that and stops. US keyboard layout.
+
+### Fixed
+
+- Windows on ARM: a VM switched to VirtIO GPU froze on the boot logo whenever the Windows ISO was still attached, because the ISO booted first and Setup's boot loader hangs on VirtIO GPU. The VM's disk now boots first; ISOs only boot while the disk is empty, which also skips the "Press any key to boot from CD" prompt on every restart after installation.
 
 ## [0.2.0] - 2026-10-13
 

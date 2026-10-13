@@ -34,7 +34,7 @@ CS.views.windows = function windows(root) {
     h("pre", { class: "console" }, text),
     ui.iconButton("keyboard", "Type into the running VM", (e) => typeInto(e.currentTarget, text), ""),
     ui.iconButton("copy", "Copy", () => { navigator.clipboard.writeText(text); CS.toast("Copied"); }, ""));
-  /* Types text into the one running VM as keystrokes; Windows on ARM has no clipboard agent. */
+  /* Types text into the one running VM as keystrokes; there is no shared clipboard with Windows on ARM. */
   async function typeInto(button, text) {
     const running = (state?.vms || []).filter((v) => v.running);
     if (running.length !== 1) {

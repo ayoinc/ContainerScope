@@ -387,8 +387,11 @@ final class WindowsVMs {
             "-device", vm.display == "virtio-gpu" ? "virtio-gpu-pci" : "ramfb",
             "-device", "qemu-xhci,id=xhci", "-device", "usb-kbd", "-device", "usb-tablet",
             // NVMe uses Windows' inbox driver, so setup sees the disk without loading VirtIO storage drivers.
+            // The disk boots first: while blank, the firmware falls through to the installer ISO; once Windows
+            // is installed, an ISO left attached never boots. Setup's boot loader hangs on virtio-gpu (its
+            // firmware display has no linear framebuffer) and on ramfb costs a "Press any key" timeout.
             "-drive", "if=none,id=disk0,format=qcow2,discard=unmap,file=\(path("disk.qcow2"))",
-            "-device", "nvme,drive=disk0,serial=containerscope0,bootindex=1",
+            "-device", "nvme,drive=disk0,serial=containerscope0,bootindex=0",
             "-rtc", "base=localtime",
             "-monitor", "unix:\(path("monitor.sock")),server=on,wait=off",
             "-pidfile", path("qemu.pid"),
@@ -397,7 +400,7 @@ final class WindowsVMs {
         ]
         for (index, iso) in isos.enumerated() {
             args += ["-drive", "if=none,id=cd\(index),media=cdrom,readonly=on,file=\(iso)",
-                     "-device", "usb-storage,drive=cd\(index),removable=on" + (index == 0 ? ",bootindex=0" : "")]
+                     "-device", "usb-storage,drive=cd\(index),removable=on,bootindex=\(index + 1)"]
         }
         args += Self.networkArgs(vm)
         try isos.joined(separator: "\n").write(toFile: path("media.txt"), atomically: true, encoding: .utf8)
@@ -509,8 +512,9 @@ final class WindowsVMs {
         return name.unicodeScalars.allSatisfy(allowed.contains)
     }
 
-    /// Types `text` into a running VM as keystrokes (HMP `sendkey`), for guests with no clipboard
-    /// agent: SPICE's Windows vdagent is x64-only. Keys are US-layout; other characters are rejected
+    /// Types `text` into a running VM as keystrokes (HMP `sendkey`), since there is no shared clipboard:
+    /// qemu-vdagent echoes the guest's CLIPBOARD_RELEASE back to it, which the ARM64 Windows vdagent
+    /// rejects as malformed and stops. Keys are US-layout; other characters are rejected
     /// up front so nothing is half-typed.
     func type(id: String, text: String) async throws {
         let vm = try vm(id)

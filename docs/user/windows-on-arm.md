@@ -56,7 +56,7 @@ The first time you create or start a VM, ContainerScope expands the bundled Secu
 
 ## 3. Install Windows
 
-1. In the installer media list, tick the Windows ISO and the VirtIO ISO, then start the VM. The checked media are attached as USB drives and the Windows ISO is the boot disk.
+1. In the installer media list, tick the Windows ISO and the VirtIO ISO, then start the VM. The checked media are attached as USB drives. The VM's own disk always boots first; while it's empty, the firmware moves on to the Windows ISO.
 2. A QEMU window opens with the ContainerScope logo. When it says **Press any key to boot from CD or DVD**, click into the window and press a key. If you miss it, shut the VM down and start it again.
 3. Follow Windows Setup. The disk shows up without extra drivers because it's NVMe.
 4. **Network during setup.** Windows has no network driver yet, so Setup may insist on an internet connection. Press **Shift+F10**, type `OOBE\BYPASSNRO`, press Return, and after the restart choose **I don't have internet**.
@@ -73,7 +73,7 @@ After the first sign-in:
    ```
    This installs every ARM64 driver on the disc: network, display, balloon and the rest. Don't run `virtio-win-guest-tools.exe` or the `.msi` installers on that disc: they're x64-only and fail on ARM with `0x80070643 - Fatal error during installation`.
 
-   Copy and paste between the Mac and the VM doesn't work: the clipboard agent for Windows is x64-only. Instead, click into the PowerShell window and press the keyboard button next to the command in ContainerScope's **VirtIO Drivers** card; the app types it for you. The keyboard button on a running VM's row types whatever is on the Mac clipboard. Typing assumes a US keyboard layout in Windows.
+   Copy and paste between the Mac and the VM doesn't work: QEMU's built-in clipboard bridge isn't compatible with the ARM64 Windows clipboard agent. Instead, click into the PowerShell window and press the keyboard button next to the command in ContainerScope's **VirtIO Drivers** card; the app types it for you. The keyboard button on a running VM's row types whatever is on the Mac clipboard. Typing assumes a US keyboard layout in Windows.
 3. The network comes up. Run Windows Update.
 4. Shut down Windows.
 5. Switch the VM's display to **VirtIO GPU**. You can only change the display while the VM is shut down.

@@ -113,6 +113,8 @@ ISOs are kept in a temporary folder that macOS clears from time to time. Downloa
 
 You missed the **Press any key to boot from CD or DVD** prompt, or no Windows ISO was attached. Shut the VM down, make sure the Windows ISO is ticked in the media list, start it again and press a key in the VM window as soon as the prompt appears.
 
+The VM's disk boots before any ISO, so once Windows is on the disk the installer never starts, even with the ISO attached. To install again from scratch, create a new VM.
+
 ### Setup says this PC can't run Windows 11
 
 Check that you're using a Windows 11 **ARM64** ISO; x64 ISOs don't boot. ContainerScope provides Secure Boot and TPM 2.0, so they don't need to be bypassed.
