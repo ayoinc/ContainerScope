@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Windows on ARM: the display switch warns that VirtIO GPU only works once viogpudo is installed in Windows (not during Setup), and that a frozen boot logo means switching back to Basic.
+- Windows on ARM: the "install every driver" command is now a PowerShell one-liner that adds only the 12 `w11\ARM64` drivers, and the app and guides warn that `virtio-win-guest-tools.exe` is x64-only (fails with 0x80070643).
 
 ## [0.2.0] - 2026-10-13
 
