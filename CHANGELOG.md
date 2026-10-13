@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An engine you installed yourself (Homebrew, `/usr/local/bin/container` or `CONTAINER_BIN`) is used instead of the bundled one.
 - **Requirements** list on the Engine page that tags each item **Included**, **Ready**, **You provide**, **Optional** or **Needs attention**: the bundled engine, kernel, QEMU and firmware, Apple silicon and macOS 26, Rosetta 2, Windows install media, VirtIO drivers, container images and the optional Docker API (socktainer). Overview shows a banner for items that need attention.
 - Windows VMs: **VirtIO GPU** display option for a resizable display once the VirtIO drivers are installed in Windows.
-- Linux VMs: choose a distribution (Ubuntu, Debian, Fedora, Alpine or any OCI image) when creating a machine.
-- Windows on ARM: more install-media sources alongside Microsoft's official ARM64 ISO, VirtIO driver download including the display driver, and network options per VM.
+- Linux VMs: choose from 11 distributions (Ubuntu 24.04/22.04, Debian 13/12, Fedora, Rocky Linux 10/9, AlmaLinux 10/9, openSUSE Leap 15.6, Alpine 3.22), each prepared once with an init system and passwordless sudo, or any OCI image. Create waits until the new machine accepts commands.
+- Windows on ARM: install media from Microsoft, Windows Insider Preview, a direct link, an ISO on disk or UUP dump; VirtIO drivers from the stable or latest channel with copyable install commands for all drivers or only the display driver; per-VM networking (NAT, NAT with port forwarding on 127.0.0.1, or isolated).
 - Orchestration: Docker Compose projects (up, start, stop, restart, down) on the engine through socktainer's Docker API.
 - Docker API and Vagrant guide: Vagrant's docker provider on top of socktainer.
 - User guides and developer documentation in [`docs/`](docs).
